@@ -35,7 +35,9 @@ impl Channels {
 }
 
 #[derive(Debug, Clone)]
-pub enum ProxyMessage {}
+pub enum ProxyMessage {
+    RadioStationsLoaded(Vec<radiobrowser::ApiStation>),
+}
 
 #[allow(clippy::large_enum_variant)]
 pub enum Ratlas {
@@ -49,6 +51,7 @@ pub enum Ratlas {
         gpu: Gpu,
         #[allow(dead_code)]
         proxy: EventLoopProxy<ProxyMessage>,
+        #[allow(dead_code)]
         channels: Channels,
         ui: IcedUi,
         canvas_renderer: CanvasRenderer,
@@ -115,6 +118,31 @@ impl ApplicationHandler<ProxyMessage> for Ratlas {
                 is_mouse_pressed: false,
                 last_mouse_pos: None,
             };
+        }
+    }
+
+    fn user_event(&mut self, _event_loop: &ActiveEventLoop, event: ProxyMessage) {
+        match event {
+            ProxyMessage::RadioStationsLoaded(stations) => {
+                tracing::info!(
+                    "Received {} popular radio stations with geolocation info",
+                    stations.len()
+                );
+                for (i, station) in stations.iter().enumerate() {
+                    tracing::info!(
+                        "[{:>2}] {:<30} | lat: {:>8.4}, lon: {:>8.4} | clicks: {}",
+                        i + 1,
+                        station.name,
+                        station.geo_lat.unwrap_or(0.0),
+                        station.geo_long.unwrap_or(0.0),
+                        station.clickcount
+                    );
+                }
+                if let Self::Running { state, window, .. } = self {
+                    state.radio_stations = stations;
+                    window.request_redraw();
+                }
+            }
         }
     }
 

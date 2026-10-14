@@ -31,6 +31,7 @@ impl World {
 pub struct AppState {
     pub world: World,
     pub camera: Camera,
+    pub radio_stations: Vec<radiobrowser::ApiStation>,
 }
 
 impl Default for AppState {
@@ -38,6 +39,7 @@ impl Default for AppState {
         Self {
             world: World::new(),
             camera: Camera::default(),
+            radio_stations: Vec::new(),
         }
     }
 }
