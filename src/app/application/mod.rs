@@ -130,12 +130,12 @@ impl ApplicationHandler<ProxyMessage> for Ratlas {
 
                 // 1. Update world objects in AppState (e.g. spin sphere around Y)
                 for obj in &mut state.world.objects {
-                    obj.rotation *= glam::Quat::from_rotation_y(0.01);
-                    obj.position = glam::Vec3::from_array([
-                        obj.position[0],
-                        ui.state.counter as f32 * 0.01,
-                        obj.position[0],
-                    ]);
+                    // obj.rotation *= glam::Quat::from_rotation_y(0.01);
+                    // obj.position = glam::Vec3::from_array([
+                    //     obj.position[0],
+                    //     ui.state.counter as f32 * 0.01,
+                    //     obj.position[0],
+                    // ]);
                 }
 
                 // 2. Update 3D viewport canvas with current world objects
