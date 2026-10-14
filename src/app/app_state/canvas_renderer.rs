@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 use crate::{
     app::app_state::gpu::Gpu,
-    data::{RenderObject, Vertex},
+    data::{RenderObject, mesh::Vertex},
 };
 
 pub struct CanvasRenderer {

@@ -2,7 +2,7 @@ use std::path::Path;
 
 use iced::wgpu::{self, util::DeviceExt};
 
-use crate::data::{Mesh, Vertex};
+use crate::data::mesh::{Mesh, Vertex};
 
 /// Lädt eine .obj-Datei und erstellt daraus eine GPU-Mesh-Struktur.
 pub fn load_mesh_from_obj(
