@@ -9,11 +9,7 @@ use winit::{
 };
 
 use crate::app::{
-    app_state::{
-        AppState,
-        canvas_renderer::{self, CanvasRenderer},
-        gpu::Gpu,
-    },
+    app_state::{AppState, canvas_renderer::CanvasRenderer, gpu::Gpu},
     ui::IcedUi,
 };
 
@@ -113,14 +109,22 @@ impl ApplicationHandler<ProxyMessage> for Ratlas {
                     return;
                 }
 
+                // 1. Update 3D viewport canvas
+                let aspect_ratio = physical_size.width as f32 / physical_size.height as f32;
+                canvas_renderer.update(aspect_ratio);
+
+                // 2. Update UI overlay
                 let (viewport, _event_statuses) = ui.update(window);
                 let _counter = ui.state.counter;
 
+                // 3. Render scene + UI overlay
                 let surface_format = gpu.surface_config.format;
                 match gpu.render_frame(canvas_renderer, |view| {
                     ui.draw(surface_format, view, &viewport);
                 }) {
-                    Ok(_) => {}
+                    Ok(_) => {
+                        window.request_redraw();
+                    }
                     Err(wgpu::SurfaceError::Lost | wgpu::SurfaceError::Outdated) => {
                         let size = window.inner_size();
                         gpu.handle_resize(size);

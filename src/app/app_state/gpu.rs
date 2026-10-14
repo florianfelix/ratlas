@@ -1,7 +1,4 @@
-use crate::{
-    app::app_state::canvas_renderer::{self, CanvasRenderer},
-    wgpu,
-};
+use crate::{app::app_state::canvas_renderer::CanvasRenderer, wgpu};
 use std::sync::Arc;
 #[allow(unused)]
 use tracing::info;
@@ -18,7 +15,6 @@ pub struct Gpu {
 
 impl Gpu {
     pub async fn from_window(window: Arc<winit::window::Window>) -> Self {
-        // let instance = wgpu::Instance::default();
         let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
             backends: wgpu::Backends::PRIMARY,
             ..Default::default()
@@ -95,6 +91,7 @@ impl Gpu {
         }
     }
 
+    #[tracing::instrument(skip_all)]
     pub fn render_frame<F>(
         &mut self,
         canvas_renderer: &CanvasRenderer,
