@@ -1,4 +1,5 @@
 use iced::wgpu;
+use std::ffi::OsStr;
 use std::path::Path;
 use std::sync::Arc;
 use wgpu::util::DeviceExt;
@@ -200,6 +201,7 @@ impl Material {
 // 3. The Unified RenderObject.
 // Combines geometry mesh, visual material, and a dedicated Uniform Buffer for spatial transform.
 pub struct RenderObject {
+    pub name: String,
     pub mesh: Arc<Mesh>,
     pub material: Arc<Material>,
 
@@ -220,6 +222,7 @@ pub struct TransformUniform {
 
 impl RenderObject {
     pub fn new(
+        name: impl Into<String>,
         device: &wgpu::Device,
         mesh: Arc<Mesh>,
         material: Arc<Material>,
@@ -243,6 +246,7 @@ impl RenderObject {
         });
 
         Self {
+            name: name.into(),
             mesh,
             material,
             position: glam::Vec3::ZERO,
@@ -267,6 +271,12 @@ impl RenderObject {
             );
             Mesh::fallback_triangle(&gpu.device)
         });
+        let name = obj_path
+            .as_ref()
+            .file_name()
+            .unwrap_or(OsStr::new("default_name"))
+            .to_str()
+            .unwrap_or("default_name");
 
         let material = Material::from_image_path(
             &gpu.device,
@@ -277,6 +287,7 @@ impl RenderObject {
         );
 
         Self::new(
+            name,
             &gpu.device,
             Arc::new(mesh),
             Arc::new(material),
