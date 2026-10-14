@@ -3,6 +3,8 @@ use tracing::info;
 mod app;
 mod utils;
 
+pub use iced_wgpu::wgpu;
+
 pub fn run() {
     utils::logger::init_logging();
     info!("Starting ratlas");

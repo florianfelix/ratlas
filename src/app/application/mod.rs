@@ -1,3 +1,8 @@
+use crate::app::{
+    app_state::{AppState, gpu::Gpu},
+    ui::Ui,
+};
+use crate::wgpu;
 use anyhow::Result;
 use std::sync::Arc;
 use tracing::info;
@@ -6,11 +11,6 @@ use winit::{
     event::WindowEvent,
     event_loop::{ActiveEventLoop, EventLoop, EventLoopProxy},
     window::{Window, WindowId},
-};
-
-use crate::app::{
-    app_state::{AppState, gpu::Gpu},
-    ui::Ui,
 };
 
 #[derive(Debug, Clone)]
@@ -54,7 +54,7 @@ impl ApplicationHandler<ProxyMessage> for Ratlas {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         if let Self::Uninitialized { proxy } = self {
             let window_attributes = Window::default_attributes()
-                .with_title("Ratlas")
+                .with_title("Ratlas floating")
                 .with_inner_size(winit::dpi::LogicalSize::new(1280.0, 800.0))
                 .with_min_inner_size(winit::dpi::LogicalSize::new(640.0, 480.0));
 

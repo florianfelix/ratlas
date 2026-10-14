@@ -1,5 +1,5 @@
+use crate::wgpu;
 use std::sync::Arc;
-
 use winit::dpi::PhysicalSize;
 
 #[derive(Clone)]
