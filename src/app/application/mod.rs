@@ -67,13 +67,9 @@ impl ApplicationHandler<ProxyMessage> for Ratlas {
             // Create initial world in AppState and load default sphere object
             let mut state = AppState::default();
             let default_sphere = RenderObject::from_files(
-                &gpu.device,
-                &gpu.queue,
+                &canvas_renderer,
                 "assets/sphere.obj",
                 "assets/sphere_diffuse.jpg",
-                canvas_renderer.pipeline.clone(),
-                &canvas_renderer.texture_layout,
-                &canvas_renderer.transform_layout,
             );
             state.world.add_object(default_sphere);
 
@@ -135,6 +131,11 @@ impl ApplicationHandler<ProxyMessage> for Ratlas {
                 // 1. Update world objects in AppState (e.g. spin sphere around Y)
                 for obj in &mut state.world.objects {
                     obj.rotation *= glam::Quat::from_rotation_y(0.01);
+                    obj.position = glam::Vec3::from_array([
+                        obj.position[0],
+                        ui.state.counter as f32 * 0.01,
+                        obj.position[0],
+                    ]);
                 }
 
                 // 2. Update 3D viewport canvas with current world objects

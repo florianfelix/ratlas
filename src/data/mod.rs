@@ -6,6 +6,8 @@ use wgpu::util::DeviceExt;
 mod load_obj;
 pub use load_obj::load_mesh_from_obj;
 
+use crate::app::app_state::canvas_renderer::CanvasRenderer;
+
 #[repr(C)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct Vertex {
@@ -253,26 +255,33 @@ impl RenderObject {
 
     /// Convenience builder to create a complete RenderObject from asset files directly
     pub fn from_files(
-        device: &wgpu::Device,
-        queue: &wgpu::Queue,
+        canvas_renderer: &CanvasRenderer,
         obj_path: impl AsRef<Path>,
         texture_path: impl AsRef<Path>,
-        pipeline: Arc<wgpu::RenderPipeline>,
-        texture_layout: &wgpu::BindGroupLayout,
-        transform_layout: &wgpu::BindGroupLayout,
     ) -> Self {
-        let mesh = Mesh::from_obj(device, obj_path.as_ref()).unwrap_or_else(|e| {
+        let gpu = &canvas_renderer.gpu;
+        let mesh = Mesh::from_obj(&gpu.device, obj_path.as_ref()).unwrap_or_else(|e| {
             tracing::warn!(
                 "Failed to load {:?} ({e}), using fallback mesh",
                 obj_path.as_ref()
             );
-            Mesh::fallback_triangle(device)
+            Mesh::fallback_triangle(&gpu.device)
         });
 
-        let material =
-            Material::from_image_path(device, queue, pipeline, texture_layout, texture_path);
+        let material = Material::from_image_path(
+            &gpu.device,
+            &gpu.queue,
+            canvas_renderer.pipeline.clone(),
+            &canvas_renderer.texture_layout,
+            texture_path,
+        );
 
-        Self::new(device, Arc::new(mesh), Arc::new(material), transform_layout)
+        Self::new(
+            &gpu.device,
+            Arc::new(mesh),
+            Arc::new(material),
+            &canvas_renderer.transform_layout,
+        )
     }
 
     pub fn local_matrix(&self) -> glam::Mat4 {

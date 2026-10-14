@@ -1,4 +1,5 @@
 #![allow(clippy::derivable_impls)]
+#![allow(clippy::single_match)]
 
 use tracing::info;
 
