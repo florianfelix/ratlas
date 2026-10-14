@@ -4,11 +4,13 @@ use winit::dpi::PhysicalSize;
 
 #[derive(Clone)]
 pub struct Gpu {
-    device: Arc<wgpu::Device>,
-    queue: Arc<wgpu::Queue>,
-    surface: Arc<wgpu::Surface<'static>>,
-    surface_config: wgpu::SurfaceConfiguration,
+    pub device: Arc<wgpu::Device>,
+    pub queue: Arc<wgpu::Queue>,
+    pub surface: Arc<wgpu::Surface<'static>>,
+    pub surface_config: wgpu::SurfaceConfiguration,
+    pub adapter: Arc<wgpu::Adapter>,
 }
+
 impl Gpu {
     pub async fn from_window(window: Arc<winit::window::Window>) -> Self {
         let instance = wgpu::Instance::default();
@@ -18,7 +20,6 @@ impl Gpu {
                 power_preference: wgpu::PowerPreference::HighPerformance,
                 compatible_surface: Some(&surface),
                 force_fallback_adapter: false,
-                ..Default::default()
             })
             .await
             .expect("Failed to find suitable GPU adapter");
@@ -27,6 +28,7 @@ impl Gpu {
             pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor::default())).unwrap();
         let device = Arc::new(device);
         let queue = Arc::new(queue);
+        let adapter = Arc::new(adapter);
 
         let size = window.inner_size();
         let surface_caps = surface.get_capabilities(&adapter);
@@ -56,7 +58,20 @@ impl Gpu {
             queue,
             surface,
             surface_config,
+            adapter,
         }
+    }
+
+    pub fn create_iced_renderer(&self) -> iced_wgpu::Renderer {
+        let engine = iced_wgpu::Engine::new(
+            &self.adapter,
+            (*self.device).clone(),
+            (*self.queue).clone(),
+            self.surface_config.format,
+            None,
+            iced_wgpu::graphics::shell::Shell::headless(),
+        );
+        iced_wgpu::Renderer::new(engine, iced::Font::DEFAULT, iced::Pixels(16.0))
     }
 
     pub fn handle_resize(&mut self, physical_size: PhysicalSize<u32>) {
@@ -69,5 +84,53 @@ impl Gpu {
             });
             self.surface.configure(&self.device, &self.surface_config);
         }
+    }
+
+    pub fn render_frame<F>(&mut self, render_iced: F) -> Result<(), wgpu::SurfaceError>
+    where
+        F: FnOnce(&wgpu::TextureView),
+    {
+        let frame = self.surface.get_current_texture()?;
+        let view = frame
+            .texture
+            .create_view(&wgpu::TextureViewDescriptor::default());
+
+        // 1. Clear / Scene Pass (Future 3D viewport rendering goes here)
+        let mut encoder = self
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("Scene Encoder"),
+            });
+
+        {
+            let _render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("Scene Clear Pass"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &view,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(wgpu::Color {
+                            r: 0.1,
+                            g: 0.1,
+                            b: 0.15,
+                            a: 1.0,
+                        }),
+                        store: wgpu::StoreOp::Store,
+                    },
+                    depth_slice: None,
+                })],
+                depth_stencil_attachment: None,
+                timestamp_writes: None,
+                occlusion_query_set: None,
+            });
+        }
+
+        self.queue.submit(std::iter::once(encoder.finish()));
+
+        // 2. Render Iced UI overlay on top
+        render_iced(&view);
+
+        frame.present();
+        Ok(())
     }
 }

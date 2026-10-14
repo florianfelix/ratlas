@@ -5,7 +5,7 @@ use tracing_subscriber::{Registry, fmt, prelude::*};
 
 pub fn init_logging() {
     let env_filter = tracing_subscriber::EnvFilter::try_from_default_env()
-        .unwrap_or_else(|_| "warn,ratlas=debug".into());
+        .unwrap_or_else(|_| "debug,ratlas=debug".into());
 
     if let Some(proj_dirs) = ProjectDirs::from("de", "ff", "ratlas") {
         let confdir = proj_dirs.config_dir();

@@ -56,13 +56,9 @@ impl iced_winit::program::Program for Ui {
             text("Iced + WGPU Viewport Integration").size(24),
             button("click me").on_press(Message::ButtonClicked),
         ]
+        .align_x(iced::Alignment::Center)
         .spacing(20);
 
-        container(content)
-            .width(iced::Length::Fill)
-            .height(iced::Length::Fill)
-            .center_x(50.0)
-            .center_y(50.0)
-            .into()
+        container(content).center(iced::Length::Fill).into()
     }
 }
