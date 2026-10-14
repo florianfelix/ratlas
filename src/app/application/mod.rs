@@ -102,6 +102,7 @@ impl ApplicationHandler<ProxyMessage> for Ratlas {
                 }
 
                 let (viewport, _event_statuses) = ui.update(window);
+                let _counter = ui.state.counter;
 
                 let surface_format = gpu.surface_config.format;
                 match gpu.render_frame(|view| {

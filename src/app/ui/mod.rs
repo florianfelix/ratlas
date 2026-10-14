@@ -3,6 +3,7 @@ use tracing::info;
 use winit::window::Window;
 
 use crate::app::app_state::gpu::Gpu;
+use iced_winit::program::Program;
 
 #[derive(Debug, Clone)]
 pub enum Message {
@@ -11,7 +12,7 @@ pub enum Message {
 
 #[derive(Debug, Default)]
 pub struct UiState {
-    counter: i32,
+    pub counter: i32,
 }
 
 pub struct Ui {}
@@ -72,7 +73,8 @@ impl iced_winit::program::Program for Ui {
 
 pub struct IcedUi {
     pub window_id: iced::window::Id,
-    pub instance: iced_winit::program::Instance<Ui>,
+    pub program: Ui,
+    pub state: UiState,
     pub renderer: iced_wgpu::Renderer,
     pub cache: iced_runtime::user_interface::Cache,
     pub cursor_position: iced_wgpu::core::mouse::Cursor,
@@ -84,15 +86,16 @@ pub struct IcedUi {
 impl IcedUi {
     #[tracing::instrument(skip_all)]
     pub fn new(window: Arc<Window>, gpu: &Gpu) -> Self {
-        let ui_program = Ui {};
-        let (instance, _task) = iced_winit::program::Instance::new(ui_program);
+        let program = Ui {};
+        let (state, _task) = program.boot();
         let renderer = gpu.create_iced_renderer();
         let clipboard = iced_winit::clipboard::Clipboard::connect(window);
         let window_id = iced::window::Id::unique();
 
         Self {
             window_id,
-            instance,
+            program,
+            state,
             renderer,
             cache: iced_runtime::user_interface::Cache::default(),
             cursor_position: iced_wgpu::core::mouse::Cursor::Unavailable,
@@ -132,7 +135,6 @@ impl IcedUi {
         }
     }
 
-    #[tracing::instrument(skip_all)]
     pub fn update(
         &mut self,
         window: &Window,
@@ -147,7 +149,7 @@ impl IcedUi {
         );
 
         let mut user_interface = iced_runtime::UserInterface::build(
-            self.instance.view(self.window_id),
+            self.program.view(&self.state, self.window_id),
             viewport.logical_size(),
             std::mem::take(&mut self.cache),
             &mut self.renderer,
@@ -167,10 +169,10 @@ impl IcedUi {
             self.cache = user_interface.into_cache();
             for message in messages {
                 info!("Processing Iced Message: {:?}", message);
-                let _task = self.instance.update(message);
+                let _task = self.program.update(&mut self.state, message);
             }
             user_interface = iced_runtime::UserInterface::build(
-                self.instance.view(self.window_id),
+                self.program.view(&self.state, self.window_id),
                 viewport.logical_size(),
                 std::mem::take(&mut self.cache),
                 &mut self.renderer,
