@@ -1,3 +1,5 @@
+#![allow(clippy::derivable_impls)]
+
 use tracing::info;
 
 mod app;

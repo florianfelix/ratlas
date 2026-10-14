@@ -1,4 +1,8 @@
+use std::sync::Arc;
 use tracing::info;
+use winit::window::Window;
+
+use crate::app::app_state::gpu::Gpu;
 
 #[derive(Debug, Clone)]
 pub enum Message {
@@ -60,5 +64,138 @@ impl iced_winit::program::Program for Ui {
         .spacing(20);
 
         container(content).center(iced::Length::Fill).into()
+    }
+}
+
+pub struct IcedUi {
+    pub window_id: iced::window::Id,
+    pub instance: iced_winit::program::Instance<Ui>,
+    pub renderer: iced_wgpu::Renderer,
+    pub cache: iced_runtime::user_interface::Cache,
+    pub cursor_position: iced_wgpu::core::mouse::Cursor,
+    pub modifiers: winit::keyboard::ModifiersState,
+    pub clipboard: iced_winit::clipboard::Clipboard,
+    pub events: Vec<iced_wgpu::core::Event>,
+}
+
+impl IcedUi {
+    pub fn new(window: Arc<Window>, gpu: &Gpu) -> Self {
+        let ui_program = Ui::default();
+        let (instance, _task) = iced_winit::program::Instance::new(ui_program);
+        let renderer = gpu.create_iced_renderer();
+        let clipboard = iced_winit::clipboard::Clipboard::connect(window);
+        let window_id = iced::window::Id::unique();
+
+        Self {
+            window_id,
+            instance,
+            renderer,
+            cache: iced_runtime::user_interface::Cache::default(),
+            cursor_position: iced_wgpu::core::mouse::Cursor::Unavailable,
+            modifiers: winit::keyboard::ModifiersState::default(),
+            clipboard,
+            events: Vec::new(),
+        }
+    }
+
+    pub fn handle_event(&mut self, window: &Window, event: &winit::event::WindowEvent) -> bool {
+        match event {
+            winit::event::WindowEvent::CursorMoved { position, .. } => {
+                let logical_pos = position.to_logical::<f64>(window.scale_factor());
+                self.cursor_position = iced_wgpu::core::mouse::Cursor::Available(
+                    iced_wgpu::core::Point::new(logical_pos.x as f32, logical_pos.y as f32),
+                );
+            }
+            winit::event::WindowEvent::CursorLeft { .. } => {
+                self.cursor_position = iced_wgpu::core::mouse::Cursor::Unavailable;
+            }
+            winit::event::WindowEvent::ModifiersChanged(new_modifiers) => {
+                self.modifiers = new_modifiers.state();
+            }
+            _ => {}
+        }
+
+        if let Some(iced_event) = iced_winit::conversion::window_event(
+            event.clone(),
+            window.scale_factor() as f32,
+            self.modifiers,
+        ) {
+            self.events.push(iced_event);
+            true
+        } else {
+            false
+        }
+    }
+
+    pub fn update(
+        &mut self,
+        window: &Window,
+    ) -> (
+        iced_wgpu::graphics::Viewport,
+        Vec<iced_wgpu::core::event::Status>,
+    ) {
+        let physical_size = window.inner_size();
+        let viewport = iced_wgpu::graphics::Viewport::with_physical_size(
+            iced_wgpu::core::Size::new(physical_size.width, physical_size.height),
+            window.scale_factor() as f32,
+        );
+
+        let mut user_interface = iced_runtime::UserInterface::build(
+            self.instance.view(self.window_id),
+            viewport.logical_size(),
+            std::mem::take(&mut self.cache),
+            &mut self.renderer,
+        );
+
+        let mut messages = Vec::new();
+        let (_state, event_statuses) = user_interface.update(
+            &self.events,
+            self.cursor_position,
+            &mut self.renderer,
+            &mut self.clipboard,
+            &mut messages,
+        );
+        self.events.clear();
+
+        if !messages.is_empty() {
+            self.cache = user_interface.into_cache();
+            for message in messages {
+                info!("Processing Iced Message: {:?}", message);
+                let _task = self.instance.update(message);
+            }
+            user_interface = iced_runtime::UserInterface::build(
+                self.instance.view(self.window_id),
+                viewport.logical_size(),
+                std::mem::take(&mut self.cache),
+                &mut self.renderer,
+            );
+        }
+
+        user_interface.draw(
+            &mut self.renderer,
+            &iced::Theme::Dark,
+            &iced_wgpu::core::renderer::Style {
+                text_color: iced::Color::WHITE,
+            },
+            self.cursor_position,
+        );
+
+        self.cache = user_interface.into_cache();
+
+        (viewport, event_statuses)
+    }
+
+    pub fn draw(
+        &mut self,
+        surface_format: iced_wgpu::wgpu::TextureFormat,
+        view: &iced_wgpu::wgpu::TextureView,
+        viewport: &iced_wgpu::graphics::Viewport,
+    ) {
+        self.renderer.present(
+            None, // transparent overlay on top of WGPU scene
+            surface_format,
+            view,
+            viewport,
+        );
     }
 }
