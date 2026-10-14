@@ -9,27 +9,29 @@ pub enum Message {
     ButtonClicked,
 }
 
-pub struct Ui {}
-
-impl Default for Ui {
-    fn default() -> Self {
-        Self {}
-    }
+#[derive(Debug, Default)]
+pub struct UiState {
+    counter: i32,
 }
 
+pub struct Ui {}
 impl iced_winit::program::Program for Ui {
-    type State = ();
+    type State = UiState;
     type Message = Message;
     type Theme = iced::Theme;
     type Renderer = iced_wgpu::Renderer;
     type Executor = iced_winit::futures::backend::null::Executor;
 
+    #[tracing::instrument(skip_all, name = "ProgramUpdate")]
     fn update(
         &self,
         _state: &mut Self::State,
         message: Self::Message,
     ) -> iced::Task<Self::Message> {
         info!("Iced Message {:?}", message);
+        match message {
+            Message::ButtonClicked => _state.counter += 1,
+        }
         iced::Task::none()
     }
 
@@ -42,7 +44,7 @@ impl iced_winit::program::Program for Ui {
     }
 
     fn boot(&self) -> (Self::State, iced::Task<Self::Message>) {
-        ((), iced::Task::none())
+        (UiState::default(), iced::Task::none())
     }
 
     fn window(&self) -> Option<iced_wgpu::core::window::Settings> {
@@ -59,6 +61,7 @@ impl iced_winit::program::Program for Ui {
         let content = column![
             text("Iced + WGPU Viewport Integration").size(24),
             button("click me").on_press(Message::ButtonClicked),
+            text(format!("{:?}", _state.counter))
         ]
         .align_x(iced::Alignment::Center)
         .spacing(20);
@@ -81,7 +84,7 @@ pub struct IcedUi {
 impl IcedUi {
     #[tracing::instrument(skip_all)]
     pub fn new(window: Arc<Window>, gpu: &Gpu) -> Self {
-        let ui_program = Ui::default();
+        let ui_program = Ui {};
         let (instance, _task) = iced_winit::program::Instance::new(ui_program);
         let renderer = gpu.create_iced_renderer();
         let clipboard = iced_winit::clipboard::Clipboard::connect(window);
