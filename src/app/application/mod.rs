@@ -14,7 +14,25 @@ use crate::{
         ui::IcedUi,
     },
     data::RenderObject,
+    radio_api,
 };
+
+#[derive(Debug, Clone)]
+pub enum RadioMessage {
+    GetPopular,
+}
+
+#[derive(Clone)]
+pub struct Channels {
+    tx_radio: crossbeam_channel::Sender<RadioMessage>,
+    rx_radio: crossbeam_channel::Receiver<RadioMessage>,
+}
+impl Channels {
+    pub fn new() -> Self {
+        let (tx_radio, rx_radio) = crossbeam_channel::unbounded::<RadioMessage>();
+        Self { tx_radio, rx_radio }
+    }
+}
 
 #[derive(Debug, Clone)]
 pub enum ProxyMessage {}
@@ -23,6 +41,7 @@ pub enum ProxyMessage {}
 pub enum Ratlas {
     Uninitialized {
         proxy: EventLoopProxy<ProxyMessage>,
+        channels: Channels,
     },
     Running {
         state: AppState,
@@ -30,6 +49,7 @@ pub enum Ratlas {
         gpu: Gpu,
         #[allow(dead_code)]
         proxy: EventLoopProxy<ProxyMessage>,
+        channels: Channels,
         ui: IcedUi,
         canvas_renderer: CanvasRenderer,
         is_mouse_pressed: bool,
@@ -41,8 +61,15 @@ impl Ratlas {
     pub fn run() -> Result<()> {
         let event_loop = EventLoop::<ProxyMessage>::with_user_event().build()?;
         let proxy = event_loop.create_proxy();
+        let channels = Channels::new();
 
-        let mut app = Ratlas::Uninitialized { proxy };
+        // RadioBrowser Thread
+        let rx = channels.rx_radio.clone();
+        let proxy_clone = proxy.clone();
+        let _ = std::thread::spawn(|| radio_api::radio_api_worker(rx, proxy_clone));
+        channels.tx_radio.send(RadioMessage::GetPopular).unwrap();
+
+        let mut app = Ratlas::Uninitialized { proxy, channels };
         event_loop.run_app(&mut app)?;
         Ok(())
     }
@@ -51,7 +78,7 @@ impl Ratlas {
 impl ApplicationHandler<ProxyMessage> for Ratlas {
     #[tracing::instrument(skip_all)]
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
-        if let Self::Uninitialized { proxy } = self {
+        if let Self::Uninitialized { proxy, channels } = self {
             let window_attributes = Window::default_attributes()
                 .with_title("Ratlas floating")
                 .with_inner_size(winit::dpi::LogicalSize::new(1280.0, 800.0))
@@ -82,6 +109,7 @@ impl ApplicationHandler<ProxyMessage> for Ratlas {
                 window,
                 gpu,
                 proxy: proxy.clone(),
+                channels: channels.clone(),
                 ui,
                 canvas_renderer,
                 is_mouse_pressed: false,

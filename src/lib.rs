@@ -5,6 +5,7 @@ use tracing::info;
 
 mod app;
 pub mod data;
+mod radio_api;
 mod utils;
 
 pub use iced_wgpu::wgpu;
