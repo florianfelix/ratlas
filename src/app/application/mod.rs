@@ -8,9 +8,12 @@ use winit::{
     window::{Window, WindowId},
 };
 
-use crate::app::{
-    app_state::{AppState, canvas_renderer::CanvasRenderer, gpu::Gpu},
-    ui::IcedUi,
+use crate::{
+    app::{
+        app_state::{AppState, canvas_renderer::CanvasRenderer, gpu::Gpu},
+        ui::IcedUi,
+    },
+    data::RenderObject,
 };
 
 #[derive(Debug, Clone)]
@@ -22,7 +25,6 @@ pub enum Ratlas {
         proxy: EventLoopProxy<ProxyMessage>,
     },
     Running {
-        #[allow(dead_code)]
         state: AppState,
         window: Arc<Window>,
         gpu: Gpu,
@@ -60,13 +62,25 @@ impl ApplicationHandler<ProxyMessage> for Ratlas {
             );
             let gpu = pollster::block_on(Gpu::from_window(window.clone()));
             let ui = IcedUi::new(window.clone(), &gpu);
+            let canvas_renderer = CanvasRenderer::new(gpu.clone());
+
+            // Create initial world in AppState and load default sphere object
+            let mut state = AppState::default();
+            let default_sphere = RenderObject::from_files(
+                &gpu.device,
+                &gpu.queue,
+                "assets/sphere.obj",
+                "assets/sphere_diffuse.jpg",
+                canvas_renderer.pipeline.clone(),
+                &canvas_renderer.texture_layout,
+                &canvas_renderer.transform_layout,
+            );
+            state.world.add_object(default_sphere);
 
             window.request_redraw();
 
-            let canvas_renderer = CanvasRenderer::new(gpu.clone());
-
             *self = Self::Running {
-                state: AppState::default(),
+                state,
                 window,
                 gpu,
                 proxy: proxy.clone(),
@@ -88,6 +102,7 @@ impl ApplicationHandler<ProxyMessage> for Ratlas {
         window_event: WindowEvent,
     ) {
         let Self::Running {
+            state,
             gpu,
             window,
             ui,
@@ -102,6 +117,14 @@ impl ApplicationHandler<ProxyMessage> for Ratlas {
             window.request_redraw();
         }
 
+        // Example: interact with world objects on window events
+        match &window_event {
+            WindowEvent::CursorMoved { .. } => {
+                // Future viewport mouse drag / object manipulation hooks can go here
+            }
+            _ => {}
+        }
+
         match window_event {
             WindowEvent::RedrawRequested => {
                 let physical_size = window.inner_size();
@@ -109,17 +132,22 @@ impl ApplicationHandler<ProxyMessage> for Ratlas {
                     return;
                 }
 
-                // 1. Update 3D viewport canvas
-                let aspect_ratio = physical_size.width as f32 / physical_size.height as f32;
-                canvas_renderer.update(aspect_ratio);
+                // 1. Update world objects in AppState (e.g. spin sphere around Y)
+                for obj in &mut state.world.objects {
+                    obj.rotation *= glam::Quat::from_rotation_y(0.01);
+                }
 
-                // 2. Update UI overlay
+                // 2. Update 3D viewport canvas with current world objects
+                let aspect_ratio = physical_size.width as f32 / physical_size.height as f32;
+                canvas_renderer.update(&state.world.objects, aspect_ratio);
+
+                // 3. Update UI overlay
                 let (viewport, _event_statuses) = ui.update(window);
                 let _counter = ui.state.counter;
 
-                // 3. Render scene + UI overlay
+                // 4. Render scene from AppState world + UI overlay
                 let surface_format = gpu.surface_config.format;
-                match gpu.render_frame(canvas_renderer, |view| {
+                match gpu.render_frame(canvas_renderer, &state.world.objects, |view| {
                     ui.draw(surface_format, view, &viewport);
                 }) {
                     Ok(_) => {

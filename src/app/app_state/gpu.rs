@@ -1,4 +1,4 @@
-use crate::{app::app_state::canvas_renderer::CanvasRenderer, wgpu};
+use crate::{app::app_state::canvas_renderer::CanvasRenderer, data::RenderObject, wgpu};
 use std::sync::Arc;
 #[allow(unused)]
 use tracing::info;
@@ -95,6 +95,7 @@ impl Gpu {
     pub fn render_frame<F>(
         &mut self,
         canvas_renderer: &CanvasRenderer,
+        objects: &[RenderObject],
         render_iced: F,
     ) -> Result<(), wgpu::SurfaceError>
     where
@@ -105,7 +106,7 @@ impl Gpu {
             .texture
             .create_view(&wgpu::TextureViewDescriptor::default());
 
-        // 1. Clear / Scene Pass (Future 3D viewport rendering goes here)
+        // 1. Clear / Scene Pass (3D viewport rendering)
         let mut encoder = self
             .device
             .create_command_encoder(&wgpu::CommandEncoderDescriptor {
@@ -134,7 +135,7 @@ impl Gpu {
                 occlusion_query_set: None,
             });
 
-            canvas_renderer.render(&mut render_pass);
+            canvas_renderer.render(objects, &mut render_pass);
         }
 
         self.queue.submit(std::iter::once(encoder.finish()));
