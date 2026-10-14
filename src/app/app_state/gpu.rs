@@ -13,7 +13,11 @@ pub struct Gpu {
 
 impl Gpu {
     pub async fn from_window(window: Arc<winit::window::Window>) -> Self {
-        let instance = wgpu::Instance::default();
+        // let instance = wgpu::Instance::default();
+        let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
+            backends: wgpu::Backends::PRIMARY,
+            ..Default::default()
+        });
         let surface = Arc::new(instance.create_surface(window.clone()).unwrap());
         let adapter = instance
             .request_adapter(&wgpu::RequestAdapterOptions {
