@@ -8,6 +8,7 @@ use iced_winit::program::Program;
 mod root_view;
 
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub enum Message {
     ButtonClicked,
 }
@@ -16,6 +17,8 @@ pub enum Message {
 pub struct UiState {
     pub counter: i32,
 }
+
+pub type Element<'a> = iced_wgpu::core::Element<'a, Message, iced::Theme, iced_wgpu::Renderer>;
 
 pub struct Ui {}
 impl iced_winit::program::Program for Ui {
