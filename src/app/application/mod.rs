@@ -3,7 +3,7 @@ use iced_wgpu::wgpu;
 use std::sync::Arc;
 use winit::{
     application::ApplicationHandler,
-    event::WindowEvent,
+    event::{ElementState, MouseButton, MouseScrollDelta, WindowEvent},
     event_loop::{ActiveEventLoop, EventLoop, EventLoopProxy},
     window::{Window, WindowId},
 };
@@ -32,6 +32,8 @@ pub enum Ratlas {
         proxy: EventLoopProxy<ProxyMessage>,
         ui: IcedUi,
         canvas_renderer: CanvasRenderer,
+        is_mouse_pressed: bool,
+        last_mouse_pos: Option<(f64, f64)>,
     },
 }
 
@@ -82,6 +84,8 @@ impl ApplicationHandler<ProxyMessage> for Ratlas {
                 proxy: proxy.clone(),
                 ui,
                 canvas_renderer,
+                is_mouse_pressed: false,
+                last_mouse_pos: None,
             };
         }
     }
@@ -103,6 +107,8 @@ impl ApplicationHandler<ProxyMessage> for Ratlas {
             window,
             ui,
             canvas_renderer,
+            is_mouse_pressed,
+            last_mouse_pos,
             ..
         } = self
         else {
@@ -113,10 +119,43 @@ impl ApplicationHandler<ProxyMessage> for Ratlas {
             window.request_redraw();
         }
 
-        // Example: interact with world objects on window events
+        // Camera orbit and zoom interaction on viewport mouse events
         match &window_event {
-            WindowEvent::CursorMoved { .. } => {
-                // Future viewport mouse drag / object manipulation hooks can go here
+            WindowEvent::MouseInput {
+                button: MouseButton::Left,
+                state: button_state,
+                ..
+            } => {
+                *is_mouse_pressed = *button_state == ElementState::Pressed;
+                if !*is_mouse_pressed {
+                    *last_mouse_pos = None;
+                }
+            }
+            WindowEvent::CursorMoved { position, .. } => {
+                let current_pos = (position.x, position.y);
+                if *is_mouse_pressed {
+                    if let Some((prev_x, prev_y)) = *last_mouse_pos {
+                        let delta_x = (current_pos.0 - prev_x) as f32;
+                        let delta_y = (current_pos.1 - prev_y) as f32;
+
+                        // Rotate camera around target
+                        state.camera.rotate_around_target(delta_x, delta_y);
+                        window.request_redraw();
+                    }
+                }
+                *last_mouse_pos = Some(current_pos);
+            }
+            WindowEvent::MouseWheel { delta, .. } => {
+                let zoom_amount = match delta {
+                    MouseScrollDelta::LineDelta(_x, y) => *y * 0.25,
+                    MouseScrollDelta::PixelDelta(pos) => (pos.y as f32) * 0.005,
+                };
+                state.camera.zoom(zoom_amount);
+                window.request_redraw();
+            }
+            WindowEvent::CursorLeft { .. } => {
+                *is_mouse_pressed = false;
+                *last_mouse_pos = None;
             }
             _ => {}
         }
@@ -128,32 +167,20 @@ impl ApplicationHandler<ProxyMessage> for Ratlas {
                     return;
                 }
 
-                // 1. Update world objects in AppState (e.g. spin sphere around Y)
-                for obj in &mut state.world.objects {
-                    // obj.rotation *= glam::Quat::from_rotation_y(0.01);
-                    // obj.position = glam::Vec3::from_array([
-                    //     obj.position[0],
-                    //     ui.state.counter as f32 * 0.01,
-                    //     obj.position[0],
-                    // ]);
-                }
-
-                // 2. Update 3D viewport canvas with current world objects
+                // 1. Update 3D viewport canvas with camera and current world objects
                 let aspect_ratio = physical_size.width as f32 / physical_size.height as f32;
-                canvas_renderer.update(&state.world.objects, aspect_ratio);
+                canvas_renderer.update(&state.camera, &state.world.objects, aspect_ratio);
 
-                // 3. Update UI overlay
+                // 2. Update UI overlay
                 let (viewport, _event_statuses) = ui.update(window);
                 let _counter = ui.state.counter;
 
-                // 4. Render scene from AppState world + UI overlay
+                // 3. Render scene from AppState world + UI overlay
                 let surface_format = gpu.surface_config.format;
                 match gpu.render_frame(canvas_renderer, &state.world.objects, |view| {
                     ui.draw(surface_format, view, &viewport);
                 }) {
-                    Ok(_) => {
-                        window.request_redraw();
-                    }
+                    Ok(_) => {}
                     Err(wgpu::SurfaceError::Lost | wgpu::SurfaceError::Outdated) => {
                         let size = window.inner_size();
                         gpu.handle_resize(size);
