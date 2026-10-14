@@ -1,4 +1,5 @@
 use iced::wgpu::{self, util::DeviceExt};
+use std::path::Path;
 use std::sync::Arc;
 
 use crate::{
@@ -58,59 +59,13 @@ impl CanvasRenderer {
                     ],
                 });
 
-        // 3. Default 1x1 White Texture & Sampler
-        let texture_size = wgpu::Extent3d {
-            width: 1,
-            height: 1,
-            depth_or_array_layers: 1,
-        };
-        let white_texture = gpu.device.create_texture(&wgpu::TextureDescriptor {
-            label: Some("Default White Texture"),
-            size: texture_size,
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: wgpu::TextureDimension::D2,
-            format: wgpu::TextureFormat::Rgba8UnormSrgb,
-            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
-            view_formats: &[],
-        });
-        gpu.queue.write_texture(
-            wgpu::TexelCopyTextureInfo {
-                texture: &white_texture,
-                mip_level: 0,
-                origin: wgpu::Origin3d::ZERO,
-                aspect: wgpu::TextureAspect::All,
-            },
-            &[255, 255, 255, 255],
-            wgpu::TexelCopyBufferLayout {
-                offset: 0,
-                bytes_per_row: Some(4),
-                rows_per_image: Some(1),
-            },
-            texture_size,
+        // 3. Load Texture from sphere_diffuse.jpg (or fallback 1x1 white texture)
+        let texture_bind_group = load_texture_bind_group(
+            &gpu.device,
+            &gpu.queue,
+            &texture_layout,
+            "assets/sphere_diffuse.jpg",
         );
-        let texture_view = white_texture.create_view(&wgpu::TextureViewDescriptor::default());
-        let sampler = gpu.device.create_sampler(&wgpu::SamplerDescriptor {
-            address_mode_u: wgpu::AddressMode::ClampToEdge,
-            address_mode_v: wgpu::AddressMode::ClampToEdge,
-            mag_filter: wgpu::FilterMode::Linear,
-            min_filter: wgpu::FilterMode::Linear,
-            ..Default::default()
-        });
-        let texture_bind_group = gpu.device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("Default Texture Bind Group"),
-            layout: &texture_layout,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: wgpu::BindingResource::TextureView(&texture_view),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: wgpu::BindingResource::Sampler(&sampler),
-                },
-            ],
-        });
 
         // 4. Render Pipeline
         let shader = gpu
@@ -153,7 +108,7 @@ impl CanvasRenderer {
                     topology: wgpu::PrimitiveTopology::TriangleList,
                     strip_index_format: None,
                     front_face: wgpu::FrontFace::Ccw,
-                    cull_mode: None, // Render both sides so monkey is fully visible
+                    cull_mode: Some(wgpu::Face::Back),
                     polygon_mode: wgpu::PolygonMode::Fill,
                     unclipped_depth: false,
                     conservative: false,
@@ -169,27 +124,27 @@ impl CanvasRenderer {
             texture_bind_group,
         });
 
-        // 5. Load Mesh (assets/monkey.obj or fallback triangle)
-        let mesh = crate::data::load_mesh_from_obj(&gpu.device, "assets/monkey.obj")
-            .or_else(|_| crate::data::load_mesh_from_obj(&gpu.device, "./assets/monkey.obj"))
+        // 5. Load Sphere Mesh (assets/sphere.obj or fallback triangle)
+        let mesh = crate::data::load_mesh_from_obj(&gpu.device, "assets/sphere.obj")
+            .or_else(|_| crate::data::load_mesh_from_obj(&gpu.device, "./assets/sphere.obj"))
             .unwrap_or_else(|e| {
-                tracing::warn!("Could not load assets/monkey.obj ({e}), using fallback mesh");
+                tracing::warn!("Could not load assets/sphere.obj ({e}), using fallback mesh");
                 create_fallback_mesh(&gpu.device)
             });
 
-        let monkey_object =
+        let sphere_object =
             RenderObject::new(&gpu.device, Arc::new(mesh), material, &transform_layout);
 
         Self {
             gpu,
-            objects: vec![monkey_object],
+            objects: vec![sphere_object],
             transform_layout,
             rotation: 0.0,
         }
     }
 
     pub fn update(&mut self, aspect_ratio: f32) {
-        self.rotation += 0.015;
+        self.rotation += 0.01;
 
         // View: camera placed at (0, 0.2, 2.8) looking at (0, 0, 0)
         let view = glam::camera::rh::view::look_at_mat4(
@@ -221,6 +176,83 @@ impl CanvasRenderer {
             object.draw(render_pass);
         }
     }
+}
+
+fn load_texture_bind_group(
+    device: &wgpu::Device,
+    queue: &wgpu::Queue,
+    layout: &wgpu::BindGroupLayout,
+    path: impl AsRef<Path>,
+) -> wgpu::BindGroup {
+    let image_data = image::open(path.as_ref()).map(|img| img.to_rgba8()).ok();
+
+    let (dimensions, rgba) = match &image_data {
+        Some(img) => (img.dimensions(), img.as_raw().as_slice()),
+        None => {
+            tracing::warn!(
+                "Could not load texture from {:?}, using fallback white texture",
+                path.as_ref()
+            );
+            ((1, 1), [255u8, 255, 255, 255].as_slice())
+        }
+    };
+
+    let texture_size = wgpu::Extent3d {
+        width: dimensions.0,
+        height: dimensions.1,
+        depth_or_array_layers: 1,
+    };
+
+    let texture = device.create_texture(&wgpu::TextureDescriptor {
+        label: Some("Diffuse Texture"),
+        size: texture_size,
+        mip_level_count: 1,
+        sample_count: 1,
+        dimension: wgpu::TextureDimension::D2,
+        format: wgpu::TextureFormat::Rgba8UnormSrgb,
+        usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+        view_formats: &[],
+    });
+
+    queue.write_texture(
+        wgpu::TexelCopyTextureInfo {
+            texture: &texture,
+            mip_level: 0,
+            origin: wgpu::Origin3d::ZERO,
+            aspect: wgpu::TextureAspect::All,
+        },
+        rgba,
+        wgpu::TexelCopyBufferLayout {
+            offset: 0,
+            bytes_per_row: Some(4 * dimensions.0),
+            rows_per_image: Some(dimensions.1),
+        },
+        texture_size,
+    );
+
+    let texture_view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+    let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+        address_mode_u: wgpu::AddressMode::Repeat,
+        address_mode_v: wgpu::AddressMode::ClampToEdge,
+        mag_filter: wgpu::FilterMode::Linear,
+        min_filter: wgpu::FilterMode::Linear,
+        ..Default::default()
+    });
+
+    device.create_bind_group(&wgpu::BindGroupDescriptor {
+        label: Some("Texture Bind Group"),
+        layout,
+        entries: &[
+            wgpu::BindGroupEntry {
+                binding: 0,
+                resource: wgpu::BindingResource::TextureView(&texture_view),
+            },
+            wgpu::BindGroupEntry {
+                binding: 1,
+                resource: wgpu::BindingResource::Sampler(&sampler),
+            },
+        ],
+    })
 }
 
 fn create_fallback_mesh(device: &wgpu::Device) -> Mesh {

@@ -41,12 +41,10 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let diff = max(dot(n, light_dir), 0.0);
 
     // Ambient + diffuse shading
-    let ambient = 0.3;
-    let lighting = ambient + diff * 0.7;
+    let ambient = 0.35;
+    let lighting = ambient + diff * 0.65;
 
-    // Warm terracotta/bronze base color
-    let base_color = vec3<f32>(0.9, 0.65, 0.45);
-    let final_rgb = base_color * tex_color.rgb * lighting;
+    let final_rgb = tex_color.rgb * lighting;
 
     return vec4<f32>(final_rgb, 1.0);
 }
