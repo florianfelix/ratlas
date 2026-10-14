@@ -167,18 +167,21 @@ impl ApplicationHandler<ProxyMessage> for Ratlas {
                     return;
                 }
 
-                // 1. Update 3D viewport canvas with camera and current world objects
+                // 1. Update UI overlay and dispatch messages directly to AppState
+                let ui_result = ui.update(window);
+                for message in &ui_result.messages {
+                    state.handle_message(message);
+                    window.request_redraw();
+                }
+
+                // 2. Update 3D viewport canvas with camera and world objects
                 let aspect_ratio = physical_size.width as f32 / physical_size.height as f32;
                 canvas_renderer.update(&state.camera, &state.world.objects, aspect_ratio);
-
-                // 2. Update UI overlay
-                let (viewport, _event_statuses) = ui.update(window);
-                let _counter = ui.state.counter;
 
                 // 3. Render scene from AppState world + UI overlay
                 let surface_format = gpu.surface_config.format;
                 match gpu.render_frame(canvas_renderer, &state.world.objects, |view| {
-                    ui.draw(surface_format, view, &viewport);
+                    ui.draw(surface_format, view, &ui_result.viewport);
                 }) {
                     Ok(_) => {}
                     Err(wgpu::SurfaceError::Lost | wgpu::SurfaceError::Outdated) => {

@@ -17,6 +17,13 @@ pub struct UiState {
 
 pub type Element<'a> = iced_wgpu::core::Element<'a, Message, iced::Theme, iced_wgpu::Renderer>;
 
+pub struct UiUpdateResult {
+    pub viewport: iced_wgpu::graphics::Viewport,
+    #[allow(dead_code)]
+    pub event_statuses: Vec<iced_wgpu::core::event::Status>,
+    pub messages: Vec<Message>,
+}
+
 pub struct Ui {}
 
 impl iced_winit::program::Program for Ui {
@@ -120,13 +127,7 @@ impl IcedUi {
         }
     }
 
-    pub fn update(
-        &mut self,
-        window: &Window,
-    ) -> (
-        iced_wgpu::graphics::Viewport,
-        Vec<iced_wgpu::core::event::Status>,
-    ) {
+    pub fn update(&mut self, window: &Window) -> UiUpdateResult {
         let physical_size = window.inner_size();
         let viewport = iced_wgpu::graphics::Viewport::with_physical_size(
             iced_wgpu::core::Size::new(physical_size.width, physical_size.height),
@@ -152,8 +153,8 @@ impl IcedUi {
 
         if !messages.is_empty() {
             self.cache = user_interface.into_cache();
-            for message in messages {
-                let _task = self.program.update(&mut self.state, message);
+            for message in &messages {
+                let _task = self.program.update(&mut self.state, message.clone());
             }
             user_interface = iced_runtime::UserInterface::build(
                 self.program.view(&self.state, self.window_id),
@@ -174,7 +175,11 @@ impl IcedUi {
 
         self.cache = user_interface.into_cache();
 
-        (viewport, event_statuses)
+        UiUpdateResult {
+            viewport,
+            event_statuses,
+            messages,
+        }
     }
 
     #[tracing::instrument(skip_all)]

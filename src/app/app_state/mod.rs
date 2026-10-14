@@ -1,4 +1,4 @@
-use crate::data::RenderObject;
+use crate::{app::ui::Message, data::RenderObject};
 
 pub mod camera;
 pub mod canvas_renderer;
@@ -38,6 +38,20 @@ impl Default for AppState {
         Self {
             world: World::new(),
             camera: Camera::default(),
+        }
+    }
+}
+
+impl AppState {
+    /// Handles application-level actions and mutations triggered by UI messages
+    pub fn handle_message(&mut self, message: &Message) {
+        match message {
+            Message::ResetCamera => {
+                self.camera.reset();
+            }
+            Message::ButtonClicked => {
+                // Application-level logic when button is clicked
+            }
         }
     }
 }

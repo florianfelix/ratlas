@@ -27,6 +27,11 @@ impl Camera {
         }
     }
 
+    /// Resets the camera to default position, target, and orientation
+    pub fn reset(&mut self) {
+        *self = Self::default();
+    }
+
     /// Computes the view matrix looking at `target`
     pub fn view_matrix(&self) -> glam::Mat4 {
         glam::camera::rh::view::look_at_mat4(self.position, self.target, self.up)
