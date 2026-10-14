@@ -9,7 +9,11 @@ use winit::{
 };
 
 use crate::app::{
-    app_state::{AppState, gpu::Gpu},
+    app_state::{
+        AppState,
+        canvas_renderer::{self, CanvasRenderer},
+        gpu::Gpu,
+    },
     ui::IcedUi,
 };
 
@@ -29,6 +33,7 @@ pub enum Ratlas {
         #[allow(dead_code)]
         proxy: EventLoopProxy<ProxyMessage>,
         ui: IcedUi,
+        canvas_renderer: CanvasRenderer,
     },
 }
 
@@ -62,12 +67,15 @@ impl ApplicationHandler<ProxyMessage> for Ratlas {
 
             window.request_redraw();
 
+            let canvas_renderer = CanvasRenderer::new(gpu.clone());
+
             *self = Self::Running {
                 state: AppState::default(),
                 window,
                 gpu,
                 proxy: proxy.clone(),
                 ui,
+                canvas_renderer,
             };
         }
     }
@@ -84,7 +92,11 @@ impl ApplicationHandler<ProxyMessage> for Ratlas {
         window_event: WindowEvent,
     ) {
         let Self::Running {
-            gpu, window, ui, ..
+            gpu,
+            window,
+            ui,
+            canvas_renderer,
+            ..
         } = self
         else {
             return;
@@ -105,7 +117,7 @@ impl ApplicationHandler<ProxyMessage> for Ratlas {
                 let _counter = ui.state.counter;
 
                 let surface_format = gpu.surface_config.format;
-                match gpu.render_frame(|view| {
+                match gpu.render_frame(canvas_renderer, |view| {
                     ui.draw(surface_format, view, &viewport);
                 }) {
                     Ok(_) => {}

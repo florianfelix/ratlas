@@ -1,4 +1,7 @@
-use crate::wgpu;
+use crate::{
+    app::app_state::canvas_renderer::{self, CanvasRenderer},
+    wgpu,
+};
 use std::sync::Arc;
 #[allow(unused)]
 use tracing::info;
@@ -92,7 +95,11 @@ impl Gpu {
         }
     }
 
-    pub fn render_frame<F>(&mut self, render_iced: F) -> Result<(), wgpu::SurfaceError>
+    pub fn render_frame<F>(
+        &mut self,
+        canvas_renderer: &CanvasRenderer,
+        render_iced: F,
+    ) -> Result<(), wgpu::SurfaceError>
     where
         F: FnOnce(&wgpu::TextureView),
     {
@@ -109,7 +116,7 @@ impl Gpu {
             });
 
         {
-            let _render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("Scene Clear Pass"),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                     view: &view,
@@ -129,6 +136,8 @@ impl Gpu {
                 timestamp_writes: None,
                 occlusion_query_set: None,
             });
+
+            canvas_renderer.render(&mut render_pass);
         }
 
         self.queue.submit(std::iter::once(encoder.finish()));

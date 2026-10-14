@@ -1174,6 +1174,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "151665d9be52f9bb40fc7966565d39666f2d1e69233571b71b87791c7e0528b3"
 
 [[package]]
+name = "glam"
+version = "0.34.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fc148d4ddd3930c52f9e5ae79b89805c6f07e9ff417e7b083e0348cea60a5aba"
+
+[[package]]
 name = "glow"
 version = "0.16.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1352,7 +1358,7 @@ checksum = "91ab1937d699403e7e69252ae743a902bcee9f4ab2052cc4c9a46fcf34729d85"
 dependencies = [
  "bitflags 2.13.2",
  "bytes",
- "glam",
+ "glam 0.25.0",
  "lilt",
  "log",
  "num-traits",
@@ -1469,7 +1475,7 @@ dependencies = [
  "bytemuck",
  "cryoglyph",
  "futures",
- "glam",
+ "glam 0.25.0",
  "guillotiere",
  "iced_debug",
  "iced_graphics",
@@ -2545,6 +2551,7 @@ dependencies = [
  "directories",
  "dyn-clone",
  "enum-iterator",
+ "glam 0.34.1",
  "iced",
  "iced_runtime",
  "iced_wgpu",
@@ -2552,6 +2559,7 @@ dependencies = [
  "itertools",
  "pollster",
  "serde",
+ "tobj",
  "toml",
  "tracing",
  "tracing-subscriber",
@@ -3175,6 +3183,15 @@ name = "tinyvec"
 version = "1.13.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "fd3ca314f692efd6c868f8408f53fe444634a845f96c028b97d35f6a1f79f0ee"
+
+[[package]]
+name = "tobj"
+version = "4.0.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6eb8e04167c1c0c76b5de63226fd733485ad63ef71e40de31e16272f47b099e2"
+dependencies = [
+ "ahash",
+]
 
 [[package]]
 name = "tokio"

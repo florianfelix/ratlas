@@ -3,6 +3,7 @@
 use tracing::info;
 
 mod app;
+pub mod data;
 mod utils;
 
 pub use iced_wgpu::wgpu;

@@ -1,3 +1,4 @@
+pub mod canvas_renderer;
 pub mod gpu;
 
 pub struct AppState {}
