@@ -79,6 +79,7 @@ pub struct IcedUi {
 }
 
 impl IcedUi {
+    #[tracing::instrument(skip_all)]
     pub fn new(window: Arc<Window>, gpu: &Gpu) -> Self {
         let ui_program = Ui::default();
         let (instance, _task) = iced_winit::program::Instance::new(ui_program);
@@ -98,6 +99,7 @@ impl IcedUi {
         }
     }
 
+    #[tracing::instrument(skip_all)]
     pub fn handle_event(&mut self, window: &Window, event: &winit::event::WindowEvent) -> bool {
         match event {
             winit::event::WindowEvent::CursorMoved { position, .. } => {
@@ -127,6 +129,7 @@ impl IcedUi {
         }
     }
 
+    #[tracing::instrument(skip_all)]
     pub fn update(
         &mut self,
         window: &Window,
@@ -185,6 +188,7 @@ impl IcedUi {
         (viewport, event_statuses)
     }
 
+    #[tracing::instrument(skip_all)]
     pub fn draw(
         &mut self,
         surface_format: iced_wgpu::wgpu::TextureFormat,

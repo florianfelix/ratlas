@@ -44,6 +44,7 @@ impl Ratlas {
 }
 
 impl ApplicationHandler<ProxyMessage> for Ratlas {
+    #[tracing::instrument(skip_all)]
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         if let Self::Uninitialized { proxy } = self {
             let window_attributes = Window::default_attributes()
@@ -75,6 +76,7 @@ impl ApplicationHandler<ProxyMessage> for Ratlas {
 
     fn exiting(&mut self, _event_loop: &ActiveEventLoop) {}
 
+    #[tracing::instrument(skip_all)]
     fn window_event(
         &mut self,
         event_loop: &ActiveEventLoop,
