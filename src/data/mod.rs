@@ -96,8 +96,8 @@ impl RenderObject {
         let material = Material::from_image_path(
             &gpu.device,
             &gpu.queue,
-            canvas_renderer.pipeline.clone(),
-            &canvas_renderer.texture_layout,
+            canvas_renderer.pipelines.default_pipeline.clone(),
+            &canvas_renderer.pipelines.texture_layout,
             texture_path,
         );
 
@@ -106,7 +106,7 @@ impl RenderObject {
             &gpu.device,
             Arc::new(mesh),
             Arc::new(material),
-            &canvas_renderer.transform_layout,
+            &canvas_renderer.pipelines.transform_layout,
         )
     }
 
