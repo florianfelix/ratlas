@@ -5,6 +5,8 @@ use winit::window::Window;
 use crate::app::app_state::gpu::Gpu;
 use iced_winit::program::Program;
 
+mod root_view;
+
 #[derive(Debug, Clone)]
 pub enum Message {
     ButtonClicked,
@@ -54,20 +56,10 @@ impl iced_winit::program::Program for Ui {
 
     fn view<'a>(
         &self,
-        _state: &'a Self::State,
+        state: &'a Self::State,
         _window: iced_wgpu::core::window::Id,
     ) -> iced_wgpu::core::Element<'a, Self::Message, Self::Theme, Self::Renderer> {
-        use iced::widget::{button, column, container, text};
-
-        let content = column![
-            text("Iced + WGPU Viewport Integration").size(24),
-            button("click me").on_press(Message::ButtonClicked),
-            text(format!("{:?}", _state.counter))
-        ]
-        .align_x(iced::Alignment::Center)
-        .spacing(20);
-
-        container(content).center(iced::Length::Fill).into()
+        self.root_view(state)
     }
 }
 
