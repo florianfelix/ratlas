@@ -1,25 +1,33 @@
-#![allow(unused)]
+use iced::widget::{column, container, row};
 
-use crate::app::ui::{Element, Message, Ui, UiState};
-use iced::widget::{button, column, container, row, text};
+use crate::app::ui::{
+    Element, Ui, UiState,
+    components::{inspector, toolbar, viewport_hud},
+};
 
-impl Ui {
-    pub fn root_view<'a>(&self, state: &'a UiState) -> Element<'a> {
-        row![
-            sidebar(state),
-            // other panels or overlays...
+impl<'a> Ui {
+    pub fn root_view(&self, state: &'a UiState) -> Element<'a> {
+        // Top section: Toolbar + Viewport HUD on left, Inspector on right
+        let top_bar = toolbar(state);
+        let hud = viewport_hud(state);
+        let right_panel = inspector(state);
+
+        // Layout: Top bar on top, body row with HUD and right-aligned Inspector
+        let body = row![
+            hud,
+            container(row![]).width(iced::Length::Fill), // Transparent viewport space
+            right_panel,
         ]
-        .into()
+        .width(iced::Length::Fill)
+        .height(iced::Length::Fill);
+
+        let content = column![top_bar, body]
+            .width(iced::Length::Fill)
+            .height(iced::Length::Fill);
+
+        container(content)
+            .width(iced::Length::Fill)
+            .height(iced::Length::Fill)
+            .into()
     }
-}
-
-pub fn sidebar<'a>(state: &'a UiState) -> Element<'a> {
-    let content = column![
-        text("Scene Controls").size(18),
-        // button("Reset Camera").on_press(Message::ResetCamera),
-        // text(format!("Selected Object: {}", state.selected_object)),
-    ]
-    .spacing(10);
-
-    container(content).width(240).padding(10).into()
 }

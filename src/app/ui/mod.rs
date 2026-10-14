@@ -1,17 +1,14 @@
 use std::sync::Arc;
-use tracing::info;
 use winit::window::Window;
 
 use crate::app::app_state::gpu::Gpu;
 use iced_winit::program::Program;
 
+pub mod components;
+pub mod message;
 mod root_view;
 
-#[derive(Debug, Clone)]
-#[allow(dead_code)]
-pub enum Message {
-    ButtonClicked,
-}
+pub use message::{Message, handle_message};
 
 #[derive(Debug, Default)]
 pub struct UiState {
@@ -21,6 +18,7 @@ pub struct UiState {
 pub type Element<'a> = iced_wgpu::core::Element<'a, Message, iced::Theme, iced_wgpu::Renderer>;
 
 pub struct Ui {}
+
 impl iced_winit::program::Program for Ui {
     type State = UiState;
     type Message = Message;
@@ -29,16 +27,8 @@ impl iced_winit::program::Program for Ui {
     type Executor = iced_winit::futures::backend::null::Executor;
 
     #[tracing::instrument(skip_all, name = "ProgramUpdate")]
-    fn update(
-        &self,
-        _state: &mut Self::State,
-        message: Self::Message,
-    ) -> iced::Task<Self::Message> {
-        info!("Iced Message {:?}", message);
-        match message {
-            Message::ButtonClicked => _state.counter += 1,
-        }
-        iced::Task::none()
+    fn update(&self, state: &mut Self::State, message: Self::Message) -> iced::Task<Self::Message> {
+        handle_message(state, message)
     }
 
     fn name() -> &'static str {
@@ -163,7 +153,6 @@ impl IcedUi {
         if !messages.is_empty() {
             self.cache = user_interface.into_cache();
             for message in messages {
-                info!("Processing Iced Message: {:?}", message);
                 let _task = self.program.update(&mut self.state, message);
             }
             user_interface = iced_runtime::UserInterface::build(
