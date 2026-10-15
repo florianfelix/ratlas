@@ -15,6 +15,7 @@ pub struct UiState {
     pub counter: i32,
     pub hovered_station_name: Option<String>,
     pub selected_station: Option<radiobrowser::ApiStation>,
+    pub playback_status: Option<crate::playback::PlaybackStatus>,
 }
 
 pub type Element<'a> = iced_wgpu::core::Element<'a, Message, iced::Theme, iced_wgpu::Renderer>;

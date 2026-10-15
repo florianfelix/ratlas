@@ -9,6 +9,7 @@ use tracing::info;
 
 mod app;
 pub mod data;
+pub mod playback;
 mod radio_api;
 mod utils;
 

@@ -8,9 +8,9 @@ use super::UiState;
 pub enum Message {
     ButtonClicked,
     ResetCamera,
-    // Add new UI message categories here:
-    // Toolbar(ToolbarMessage),
-    // Inspector(InspectorMessage),
+    TogglePlayback,
+    StopPlayback,
+    PlayStation { url: String, name: String },
 }
 
 /// Handles UI state transitions driven by Iced messages
@@ -24,6 +24,9 @@ pub fn handle_message(state: &mut UiState, message: Message) -> Task<Message> {
         }
         Message::ResetCamera => {
             // Can trigger camera reset or set dirty flags
+        }
+        Message::TogglePlayback | Message::StopPlayback | Message::PlayStation { .. } => {
+            // Application-level worker handles playback messages
         }
     }
 

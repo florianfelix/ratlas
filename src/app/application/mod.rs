@@ -24,19 +24,30 @@ pub enum RadioMessage {
 
 #[derive(Clone)]
 pub struct Channels {
-    tx_radio: crossbeam_channel::Sender<RadioMessage>,
-    rx_radio: crossbeam_channel::Receiver<RadioMessage>,
+    pub tx_radio: crossbeam_channel::Sender<RadioMessage>,
+    pub rx_radio: crossbeam_channel::Receiver<RadioMessage>,
+    pub tx_playback: crossbeam_channel::Sender<crate::playback::PlaybackMessage>,
+    pub rx_playback: crossbeam_channel::Receiver<crate::playback::PlaybackMessage>,
 }
+
 impl Channels {
     pub fn new() -> Self {
         let (tx_radio, rx_radio) = crossbeam_channel::unbounded::<RadioMessage>();
-        Self { tx_radio, rx_radio }
+        let (tx_playback, rx_playback) =
+            crossbeam_channel::unbounded::<crate::playback::PlaybackMessage>();
+        Self {
+            tx_radio,
+            rx_radio,
+            tx_playback,
+            rx_playback,
+        }
     }
 }
 
 #[derive(Debug, Clone)]
 pub enum ProxyMessage {
     RadioStationsLoaded(Vec<radiobrowser::ApiStation>),
+    PlaybackStatusChanged(crate::playback::PlaybackStatus),
 }
 
 #[allow(clippy::large_enum_variant)]
@@ -51,7 +62,6 @@ pub enum Ratlas {
         gpu: Gpu,
         #[allow(dead_code)]
         proxy: EventLoopProxy<ProxyMessage>,
-        #[allow(dead_code)]
         channels: Channels,
         ui: IcedUi,
         canvas_renderer: CanvasRenderer,
@@ -67,11 +77,18 @@ impl Ratlas {
         let proxy = event_loop.create_proxy();
         let channels = Channels::new();
 
-        // RadioBrowser Thread
-        let rx = channels.rx_radio.clone();
-        let proxy_clone = proxy.clone();
-        let _ = std::thread::spawn(|| radio_api::radio_api_worker(rx, proxy_clone));
+        // 1. RadioBrowser API Worker Thread
+        let rx_radio = channels.rx_radio.clone();
+        let proxy_radio = proxy.clone();
+        let _ = std::thread::spawn(|| radio_api::radio_api_worker(rx_radio, proxy_radio));
         channels.tx_radio.send(RadioMessage::GetPopular).unwrap();
+
+        // 2. Audio Playback Worker Thread
+        let rx_playback = channels.rx_playback.clone();
+        let proxy_playback = proxy.clone();
+        let _ = std::thread::spawn(move || {
+            crate::playback::playback_worker(rx_playback, proxy_playback);
+        });
 
         let mut app = Ratlas::Uninitialized { proxy, channels };
         event_loop.run_app(&mut app)?;
@@ -155,6 +172,13 @@ impl ApplicationHandler<ProxyMessage> for Ratlas {
                     window.request_redraw();
                 }
             }
+            ProxyMessage::PlaybackStatusChanged(status) => {
+                tracing::info!("Playback status updated: {:?}", status);
+                if let Self::Running { state, window, .. } = self {
+                    state.playback_status = status;
+                    window.request_redraw();
+                }
+            }
         }
     }
 
@@ -173,6 +197,7 @@ impl ApplicationHandler<ProxyMessage> for Ratlas {
             state,
             gpu,
             window,
+            channels,
             ui,
             canvas_renderer,
             is_mouse_pressed,
@@ -217,9 +242,23 @@ impl ApplicationHandler<ProxyMessage> for Ratlas {
                                 release_pos,
                                 (physical_size.width, physical_size.height),
                             );
-                            let clicked_uuid =
-                                state.pick_station(&ray).map(|s| s.stationuuid.clone());
-                            state.set_selected_station(clicked_uuid);
+                            let clicked_station = state.pick_station(&ray).cloned();
+                            if let Some(ref station) = clicked_station {
+                                let stream_url = if !station.url_resolved.is_empty() {
+                                    station.url_resolved.clone()
+                                } else {
+                                    station.url.clone()
+                                };
+                                let _ = channels.tx_playback.send(
+                                    crate::playback::PlaybackMessage::Play {
+                                        url: stream_url,
+                                        name: station.name.clone(),
+                                    },
+                                );
+                            }
+                            state.set_selected_station(
+                                clicked_station.as_ref().map(|s| s.stationuuid.clone()),
+                            );
                             window.request_redraw();
                         }
                     }
@@ -258,6 +297,7 @@ impl ApplicationHandler<ProxyMessage> for Ratlas {
                     state.apply_effectors();
                     window.request_redraw();
                 }
+
                 *last_mouse_pos = Some(current_pos);
             }
             WindowEvent::MouseWheel { delta, .. } => {
@@ -296,7 +336,7 @@ impl ApplicationHandler<ProxyMessage> for Ratlas {
                 // Apply dynamic effectors based on current camera and mouse positions
                 state.apply_effectors();
 
-                // Sync hovered / selected station details to UI overlay state
+                // Sync hovered / selected station details and playback status to UI overlay state
                 ui.state.hovered_station_name = state
                     .hovered_station
                     .as_ref()
@@ -307,11 +347,35 @@ impl ApplicationHandler<ProxyMessage> for Ratlas {
                     .as_ref()
                     .and_then(|id| state.find_station(id))
                     .cloned();
+                ui.state.playback_status = Some(state.playback_status.clone());
 
-                // 1. Update UI overlay and dispatch messages directly to AppState
+                // 1. Update UI overlay and dispatch messages directly to AppState or playback channel
                 let ui_result = ui.update(window);
                 for message in &ui_result.messages {
-                    state.handle_message(message);
+                    match message {
+                        crate::app::ui::Message::TogglePlayback => {
+                            let _ = channels
+                                .tx_playback
+                                .send(crate::playback::PlaybackMessage::TogglePlayPause);
+                        }
+                        crate::app::ui::Message::StopPlayback => {
+                            let _ = channels
+                                .tx_playback
+                                .send(crate::playback::PlaybackMessage::Stop);
+                        }
+                        crate::app::ui::Message::PlayStation { url, name } => {
+                            let _ =
+                                channels
+                                    .tx_playback
+                                    .send(crate::playback::PlaybackMessage::Play {
+                                        url: url.clone(),
+                                        name: name.clone(),
+                                    });
+                        }
+                        _ => {
+                            state.handle_message(message);
+                        }
+                    }
                     window.request_redraw();
                 }
 

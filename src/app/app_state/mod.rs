@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use crate::{
     app::ui::Message,
-    data::{effector::EffectorKind, Effector, RenderObject},
+    data::{Effector, RenderObject, effector::EffectorKind},
 };
 
 pub mod camera;
@@ -20,6 +20,7 @@ pub struct AppState {
     pub selected_station: Option<String>, // stationuuid
     pub mouse_globe_pos: Option<glam::Vec3>,
     pub effectors: Vec<Effector>,
+    pub playback_status: crate::playback::PlaybackStatus,
 }
 
 impl Default for AppState {
@@ -44,6 +45,7 @@ impl Default for AppState {
             selected_station: None,
             mouse_globe_pos: None,
             effectors,
+            playback_status: crate::playback::PlaybackStatus::Stopped,
         }
     }
 }
@@ -57,6 +59,9 @@ impl AppState {
             }
             Message::ButtonClicked => {
                 // Application-level logic when button is clicked
+            }
+            Message::TogglePlayback | Message::StopPlayback | Message::PlayStation { .. } => {
+                // Handled in application run loop / channels
             }
         }
     }
@@ -151,10 +156,10 @@ impl AppState {
                 // 2. Apply hover and selection highlights on top
                 if obj.id.as_ref() == self.hovered_station.as_ref() {
                     current_scale *= 1.25;
-                    current_tint = current_tint * glam::Vec4::new(0.7, 1.3, 1.5, 1.0);
+                    current_tint *= glam::Vec4::new(0.7, 1.3, 1.5, 1.0);
                 } else if obj.id.as_ref() == self.selected_station.as_ref() {
                     current_scale *= 1.15;
-                    current_tint = current_tint * glam::Vec4::new(1.3, 1.1, 0.4, 1.0);
+                    current_tint *= glam::Vec4::new(1.3, 1.1, 0.4, 1.0);
                 }
 
                 obj.scale = current_scale;
