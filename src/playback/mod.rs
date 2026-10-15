@@ -2,6 +2,7 @@ use std::io::{Cursor, Read, Seek, SeekFrom};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use tokio::runtime::Builder;
+use tokio::sync::mpsc;
 use winit::event_loop::EventLoopProxy;
 
 use crate::app::application::ProxyMessage;
@@ -32,15 +33,24 @@ pub struct ChannelReader {
     current: Cursor<Vec<u8>>,
     bytes_read: u64,
     stop_flag: Arc<AtomicBool>,
+    is_probing: Arc<AtomicBool>,
+    max_probe_bytes: u64,
 }
 
 impl ChannelReader {
-    pub fn new(rx: crossbeam_channel::Receiver<Vec<u8>>, stop_flag: Arc<AtomicBool>) -> Self {
+    pub fn new(
+        rx: crossbeam_channel::Receiver<Vec<u8>>,
+        stop_flag: Arc<AtomicBool>,
+        is_probing: Arc<AtomicBool>,
+        max_probe_bytes: u64,
+    ) -> Self {
         Self {
             rx,
             current: Cursor::new(Vec::new()),
             bytes_read: 0,
             stop_flag,
+            is_probing,
+            max_probe_bytes,
         }
     }
 }
@@ -50,6 +60,11 @@ impl Read for ChannelReader {
         loop {
             if self.stop_flag.load(Ordering::SeqCst) {
                 return Ok(0); // Signal EOF if playback stopped
+            }
+
+            // In probe mode, prevent the demuxer from scanning infinite junk bytes
+            if self.is_probing.load(Ordering::SeqCst) && self.bytes_read >= self.max_probe_bytes {
+                return Ok(0);
             }
 
             let n = self.current.read(buf)?;
@@ -85,7 +100,6 @@ impl Seek for ChannelReader {
 }
 
 pub struct PlaybackWorker {
-    rx_playback: crossbeam_channel::Receiver<PlaybackMessage>,
     proxy: EventLoopProxy<ProxyMessage>,
     current_status: PlaybackStatus,
     current_volume: f32,
@@ -96,10 +110,7 @@ pub struct PlaybackWorker {
 }
 
 impl PlaybackWorker {
-    pub fn new(
-        rx_playback: crossbeam_channel::Receiver<PlaybackMessage>,
-        proxy: EventLoopProxy<ProxyMessage>,
-    ) -> Self {
+    pub fn new(proxy: EventLoopProxy<ProxyMessage>) -> Self {
         let (sink_handle, player) = match rodio::stream::DeviceSinkBuilder::open_default_sink() {
             Ok(mut sink) => {
                 sink.log_on_drop(false);
@@ -115,7 +126,6 @@ impl PlaybackWorker {
         };
 
         Self {
-            rx_playback,
             proxy,
             current_status: PlaybackStatus::Stopped,
             current_volume: 1.0,
@@ -132,13 +142,42 @@ impl PlaybackWorker {
             .send_event(ProxyMessage::PlaybackStatusChanged(status));
     }
 
-    pub async fn run(&mut self) {
+    fn stop_current(&mut self) {
+        self.stop_stream.store(true, Ordering::SeqCst);
+        if let Some(player) = &self.player {
+            player.stop();
+            player.clear();
+        }
+    }
+
+    pub async fn run(&mut self, mut rx: mpsc::UnboundedReceiver<PlaybackMessage>) {
         tracing::info!("Playback worker thread started");
 
-        while let Ok(msg) = self.rx_playback.recv() {
+        let mut pending_msg: Option<PlaybackMessage> = None;
+
+        loop {
+            let msg = if let Some(m) = pending_msg.take() {
+                m
+            } else {
+                match rx.recv().await {
+                    Some(m) => m,
+                    None => break,
+                }
+            };
+
             match msg {
                 PlaybackMessage::Play { url, name } => {
-                    self.handle_play(url, name).await;
+                    self.stop_current();
+
+                    // Run handle_play, but interrupt immediately if a new user action arrives
+                    tokio::select! {
+                        _ = self.handle_play(url, name) => {}
+                        Some(interrupted_msg) = rx.recv() => {
+                            tracing::info!("Interrupted current playback connection with new message");
+                            self.stop_current();
+                            pending_msg = Some(interrupted_msg);
+                        }
+                    }
                 }
                 PlaybackMessage::Stop => {
                     self.handle_stop();
@@ -208,9 +247,6 @@ impl PlaybackWorker {
         }
 
         // Connect to HTTP stream with redirect following and connect/read timeouts.
-        // NOTE: We deliberately do NOT set client.timeout(), because client.timeout()
-        // sets a total request timeout on the ENTIRE body download, which prematurely terminates
-        // live audio streams after N seconds.
         let client = reqwest::Client::builder()
             .connect_timeout(std::time::Duration::from_secs(10))
             .read_timeout(std::time::Duration::from_secs(15))
@@ -239,6 +275,61 @@ impl PlaybackWorker {
             tracing::error!("{err_msg}");
             self.update_status(PlaybackStatus::Error { message: err_msg });
             return;
+        }
+
+        // Detect content type from headers and URL
+        let mut hint = None;
+        let mut mime = None;
+
+        if let Some(ct) = response.headers().get(reqwest::header::CONTENT_TYPE) {
+            if let Ok(ct_str) = ct.to_str() {
+                let ct_lower = ct_str.to_lowercase();
+                if ct_lower.contains("mpegurl") || ct_lower.contains("m3u") {
+                    let err_msg = "HLS / M3U8 stream playlist format is not supported".to_string();
+                    tracing::warn!("{err_msg}");
+                    self.update_status(PlaybackStatus::Error { message: err_msg });
+                    return;
+                }
+                if ct_lower.contains("aac") {
+                    hint = Some("aac");
+                    mime = Some("audio/aac");
+                } else if ct_lower.contains("mpeg") || ct_lower.contains("mp3") {
+                    hint = Some("mp3");
+                    mime = Some("audio/mpeg");
+                } else if ct_lower.contains("ogg")
+                    || ct_lower.contains("vorbis")
+                    || ct_lower.contains("opus")
+                {
+                    hint = Some("ogg");
+                    mime = Some("audio/ogg");
+                } else if ct_lower.contains("flac") {
+                    hint = Some("flac");
+                    mime = Some("audio/flac");
+                }
+            }
+        }
+
+        if hint.is_none() {
+            let lower_url = url.to_lowercase();
+            if lower_url.contains(".m3u8") || lower_url.contains(".m3u") {
+                let err_msg = "HLS / M3U8 stream playlist format is not supported".to_string();
+                tracing::warn!("{err_msg}");
+                self.update_status(PlaybackStatus::Error { message: err_msg });
+                return;
+            }
+            if lower_url.contains(".aac") || lower_url.contains("/aac") {
+                hint = Some("aac");
+                mime = Some("audio/aac");
+            } else if lower_url.contains(".mp3") || lower_url.contains("/mp3") {
+                hint = Some("mp3");
+                mime = Some("audio/mpeg");
+            } else if lower_url.contains(".ogg") || lower_url.contains("/ogg") {
+                hint = Some("ogg");
+                mime = Some("audio/ogg");
+            } else if lower_url.contains(".flac") || lower_url.contains("/flac") {
+                hint = Some("flac");
+                mime = Some("audio/flac");
+            }
         }
 
         // Prebuffer initial bytes (~48 KB) to allow format probing without underrun
@@ -307,26 +398,28 @@ impl PlaybackWorker {
             }
         });
 
-        let reader = ChannelReader::new(rx_chunks, stop_flag.clone());
+        // Set probe limit to 64 KB so demuxer cannot scan infinite junk bytes if stream is invalid
+        let is_probing = Arc::new(AtomicBool::new(true));
+        let reader =
+            ChannelReader::new(rx_chunks, stop_flag.clone(), is_probing.clone(), 64 * 1024);
 
         // Configure decoder builder with format hints
         let mut builder = rodio::Decoder::builder()
             .with_data(reader)
             .with_seekable(false);
 
-        let lower_url = url.to_lowercase();
-        if lower_url.contains(".mp3") || lower_url.contains("/mp3") {
-            builder = builder.with_hint("mp3").with_mime_type("audio/mpeg");
-        } else if lower_url.contains(".aac") || lower_url.contains("/aac") {
-            builder = builder.with_hint("aac").with_mime_type("audio/aac");
-        } else if lower_url.contains(".ogg") || lower_url.contains("/ogg") {
-            builder = builder.with_hint("ogg").with_mime_type("audio/ogg");
-        } else if lower_url.contains(".flac") || lower_url.contains("/flac") {
-            builder = builder.with_hint("flac").with_mime_type("audio/flac");
+        if let Some(h) = hint {
+            builder = builder.with_hint(h);
+        }
+        if let Some(m) = mime {
+            builder = builder.with_mime_type(m);
         }
 
         match builder.build() {
             Ok(decoder) => {
+                // Probing succeeded! Disable the probe byte limit for continuous playback
+                is_probing.store(false, Ordering::SeqCst);
+
                 if let Some(player) = &self.player {
                     player.clear();
                     player.set_volume(self.current_volume);
@@ -349,11 +442,7 @@ impl PlaybackWorker {
     }
 
     fn handle_stop(&mut self) {
-        self.stop_stream.store(true, Ordering::SeqCst);
-        if let Some(player) = &self.player {
-            player.stop();
-            player.clear();
-        }
+        self.stop_current();
         self.update_status(PlaybackStatus::Stopped);
         tracing::info!("Playback stopped");
     }
@@ -395,7 +484,7 @@ pub fn playback_worker(
     rx_playback: crossbeam_channel::Receiver<PlaybackMessage>,
     proxy: EventLoopProxy<ProxyMessage>,
 ) {
-    let mut worker = PlaybackWorker::new(rx_playback, proxy);
+    let mut worker = PlaybackWorker::new(proxy);
 
     let runtime = Builder::new_multi_thread()
         .worker_threads(2)
@@ -404,7 +493,19 @@ pub fn playback_worker(
         .build()
         .expect("Failed to initialize Tokio runtime for PlaybackWorker");
 
-    runtime.block_on(worker.run());
+    // Bridge crossbeam channel to tokio async channel
+    let (async_tx, async_rx) = mpsc::unbounded_channel();
+    let _ = std::thread::Builder::new()
+        .name("playback_bridge".to_string())
+        .spawn(move || {
+            while let Ok(msg) = rx_playback.recv() {
+                if async_tx.send(msg).is_err() {
+                    break;
+                }
+            }
+        });
+
+    runtime.block_on(worker.run(async_rx));
 }
 
 #[cfg(test)]
