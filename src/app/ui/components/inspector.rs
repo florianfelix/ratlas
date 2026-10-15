@@ -15,9 +15,9 @@ pub fn inspector<'a>(state: &'a UiState) -> Element<'a> {
     }
 
     match &state.playback_status {
-        Some(PlaybackStatus::Playing { name, .. }) => {
+        Some(PlaybackStatus::Playing { .. }) => {
             content = content
-                .push(text(format!("▶ Playing: {name}")).size(12))
+                // .push(text(format!("▶ Playing: {name}")).size(12))
                 .push(
                     row![
                         button("⏸ Pause")
@@ -30,9 +30,9 @@ pub fn inspector<'a>(state: &'a UiState) -> Element<'a> {
                     .spacing(6),
                 );
         }
-        Some(PlaybackStatus::Paused { name, .. }) => {
+        Some(PlaybackStatus::Paused { .. }) => {
             content = content
-                .push(text(format!("⏸ Paused: {name}")).size(12))
+                // .push(text(format!("⏸ Paused: {name}")).size(12))
                 .push(
                     row![
                         button("▶ Resume")
@@ -45,14 +45,12 @@ pub fn inspector<'a>(state: &'a UiState) -> Element<'a> {
                     .spacing(6),
                 );
         }
-        Some(PlaybackStatus::Loading { name, .. }) => {
-            content = content
-                .push(text(format!("⏳ Connecting to {name}...")).size(12))
-                .push(
-                    button("⏹ Cancel")
-                        .on_press(Message::StopPlayback)
-                        .padding([3, 6]),
-                );
+        Some(PlaybackStatus::Loading { .. }) => {
+            content = content.push(text("⏳ Connecting ...").size(12)).push(
+                button("⏹ Cancel")
+                    .on_press(Message::StopPlayback)
+                    .padding([3, 6]),
+            );
         }
         Some(PlaybackStatus::Error { message }) => {
             content = content
