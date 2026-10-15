@@ -29,6 +29,72 @@ pub enum EffectorKind {
         tint: Vec4,
         intensity: f32,
     },
+    /// Standalone picking effector:
+    /// Encapsulates a spatial selection sphere for hover and click picking,
+    /// decoupling picking radius and logic from visual lens scaling.
+    Picker { radius: f32 },
+}
+
+/// Standalone picking effector:
+/// Encapsulates spatial selection queries within an active radius.
+/// Can be used as a standalone object or inserted into the general `Effector` list.
+#[derive(Debug, Clone)]
+pub struct PickingEffector {
+    pub name: String,
+    pub enabled: bool,
+    pub position: Vec3,
+    pub radius: f32,
+}
+
+impl PickingEffector {
+    pub fn new(radius: f32) -> Self {
+        Self {
+            name: "MousePickingEffector".to_string(),
+            enabled: true,
+            position: Vec3::ZERO,
+            radius,
+        }
+    }
+
+    /// Evaluates candidate items against this picker's center and radius.
+    /// Returns the closest item within radius: `Some((item, distance))`.
+    pub fn pick_closest<T>(
+        &self,
+        candidates: impl IntoIterator<Item = (T, Vec3)>,
+    ) -> Option<(T, f32)> {
+        if !self.enabled {
+            return None;
+        }
+
+        let mut closest: Option<(T, f32)> = None;
+        for (item, pos) in candidates {
+            let dist = (pos - self.position).length();
+            if dist <= self.radius {
+                if closest.as_ref().map_or(true, |(_, min_d)| dist < *min_d) {
+                    closest = Some((item, dist));
+                }
+            }
+        }
+        closest
+    }
+
+    /// Converts this picking effector into a general `Effector`.
+    pub fn to_effector(&self) -> Effector {
+        Effector {
+            name: self.name.clone(),
+            enabled: self.enabled,
+            position: self.position,
+            kind: EffectorKind::Picker {
+                radius: self.radius,
+            },
+        }
+    }
+}
+
+impl From<PickingEffector> for Effector {
+    fn from(p: PickingEffector) -> Self {
+        p.to_effector()
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -70,6 +136,48 @@ impl Effector {
                 tint,
             },
         }
+    }
+
+    pub fn new_picker(radius: f32) -> Self {
+        PickingEffector::new(radius).into()
+    }
+
+    pub fn is_picker(&self) -> bool {
+        matches!(self.kind, EffectorKind::Picker { .. })
+    }
+
+    /// Returns the active spherical radius of this effector if it has one.
+    pub fn radius(&self) -> Option<f32> {
+        match &self.kind {
+            EffectorKind::SphericalLens { radius, .. } => Some(*radius),
+            EffectorKind::ColorField { radius, .. } => Some(*radius),
+            EffectorKind::Picker { radius } => Some(*radius),
+            EffectorKind::DistanceProximity { .. } => None,
+        }
+    }
+
+    /// Evaluates candidate items against this effector's position and radius.
+    /// Returns the closest item that falls within the radius: `Some((item, distance))`.
+    pub fn pick_closest<T>(
+        &self,
+        candidates: impl IntoIterator<Item = (T, Vec3)>,
+    ) -> Option<(T, f32)> {
+        if !self.enabled {
+            return None;
+        }
+        let radius = self.radius()?;
+        let mut closest: Option<(T, f32)> = None;
+
+        for (item, pos) in candidates {
+            let dist = (pos - self.position).length();
+            if dist <= radius {
+                if closest.as_ref().map_or(true, |(_, min_d)| dist < *min_d) {
+                    closest = Some((item, dist));
+                }
+            }
+        }
+
+        closest
     }
 
     /// Evaluates the scale multiplier and color tint contribution for a target point in world space.
@@ -125,6 +233,10 @@ impl Effector {
                 let effective_tint = *tint * (s_curve * intensity);
                 (1.0, Some(effective_tint))
             }
+            EffectorKind::Picker { .. } => {
+                // Picking effector does not alter base geometry scale or color tint
+                (1.0, None)
+            }
         }
     }
 }
@@ -165,5 +277,34 @@ mod tests {
         let (scale_outside, tint_outside) = effector.evaluate(Vec3::new(1.6, 0.0, 0.0));
         assert!((scale_outside - 1.0).abs() < 1e-4);
         assert!(tint_outside.is_none());
+    }
+
+    #[test]
+    fn test_standalone_picking_effector() {
+        let mut picker = PickingEffector::new(0.05);
+        picker.position = Vec3::new(0.0, 0.0, 1.0);
+
+        let items = vec![
+            ("item_close", Vec3::new(0.01, 0.0, 1.0)), // dist = 0.01 <= 0.05
+            ("item_farther", Vec3::new(0.04, 0.0, 1.0)), // dist = 0.04 <= 0.05
+            ("item_outside", Vec3::new(0.10, 0.0, 1.0)), // dist = 0.10 > 0.05
+        ];
+
+        let result = picker.pick_closest(items.clone());
+        assert_eq!(result.map(|(id, _)| id), Some("item_close"));
+
+        // If disabled, returns None
+        picker.enabled = false;
+        let disabled_result = picker.pick_closest(items.clone());
+        assert_eq!(disabled_result, None);
+
+        // Test conversion to general Effector and picking through Effector
+        let mut general_picker: Effector = PickingEffector::new(0.05).into();
+        general_picker.position = Vec3::new(0.0, 0.0, 1.0);
+        assert!(general_picker.is_picker());
+        assert_eq!(general_picker.radius(), Some(0.05));
+
+        let general_result = general_picker.pick_closest(items);
+        assert_eq!(general_result.map(|(id, _)| id), Some("item_close"));
     }
 }

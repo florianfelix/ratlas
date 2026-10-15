@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use crate::{
     app::ui::Message,
-    data::{Effector, RenderObject, effector::EffectorKind},
+    data::{effector::EffectorKind, Effector, RenderObject},
 };
 
 pub mod camera;
@@ -31,6 +31,8 @@ impl Default for AppState {
             // 2. Mouse globe lens effector: magnifies markers under/around the cursor with an S-curve
             // and gives a subtle glowing tint.
             Effector::new_mouse_lens(0.02, 1.05, Some(glam::Vec4::new(0.2, 0.35, 0.5, 0.0))),
+            // 3. Standalone picking effector: spatial selection sphere for hover and click picking
+            Effector::new_picker(0.02),
         ];
 
         Self {
@@ -120,17 +122,15 @@ impl AppState {
             cam_eff.position = self.camera.position;
         }
 
-        // Sync mouse lens effector position with mouse globe hit point
-        if let Some(mouse_eff) = self
-            .effectors
-            .iter_mut()
-            .find(|e| e.name == "MouseGlobeLens")
-        {
-            if let Some(globe_pos) = self.mouse_globe_pos {
-                mouse_eff.enabled = true;
-                mouse_eff.position = globe_pos;
-            } else {
-                mouse_eff.enabled = false;
+        // Sync mouse lens and picking effector positions with mouse globe hit point
+        for effector in &mut self.effectors {
+            if effector.name == "MouseGlobeLens" || effector.is_picker() {
+                if let Some(globe_pos) = self.mouse_globe_pos {
+                    effector.enabled = true;
+                    effector.position = globe_pos;
+                } else {
+                    effector.enabled = false;
+                }
             }
         }
 
@@ -163,42 +163,32 @@ impl AppState {
         }
     }
 
-    /// Picks a station marker under the mouse lens or cursor.
-    /// Finds the closest marker to the cursor hit point on the globe within the mouse lens sphere,
+    /// Picks a station marker under the cursor using the picking effector.
+    /// Finds the closest marker to the cursor hit point on the globe within the picking effector radius,
     /// ensuring deterministic, stable hover/selection that visually matches the lens magnification.
     pub fn pick_station(&self, ray: &Ray) -> Option<&radiobrowser::ApiStation> {
         // Distance to the front surface of the Earth
         let earth_dist = ray.intersect_sphere(glam::Vec3::ZERO, Camera::SPHERE_RADIUS)?;
         let globe_hit = ray.origin + ray.direction * earth_dist;
 
-        // Radius within which markers are eligible for hover/selection,
-        // dynamically matching the active mouse lens radius if configured.
-        let lens_radius = self
-            .effectors
-            .iter()
-            .find_map(|e| {
-                if let EffectorKind::SphericalLens { radius, .. } = &e.kind {
-                    Some(*radius)
-                } else {
-                    None
-                }
-            })
-            .unwrap_or(0.045);
+        // Query the dedicated picking effector, or fall back to any active spherical lens
+        let picker = self.effectors.iter().find(|e| e.is_picker()).or_else(|| {
+            self.effectors
+                .iter()
+                .find(|e| matches!(e.kind, EffectorKind::SphericalLens { .. }))
+        })?;
 
-        let mut closest: Option<(f32, &String)> = None;
+        let mut active_picker = picker.clone();
+        active_picker.position = globe_hit;
+        active_picker.enabled = true;
 
-        for obj in self.world.get_by_tag("station_marker") {
-            let dist = (obj.position - globe_hit).length();
-            if dist <= lens_radius {
-                if closest.as_ref().map_or(true, |(min_d, _)| dist < *min_d) {
-                    if let Some(id) = &obj.id {
-                        closest = Some((dist, id));
-                    }
-                }
-            }
-        }
+        let candidates = self
+            .world
+            .get_by_tag("station_marker")
+            .filter_map(|obj| obj.id.as_deref().map(|id| (id, obj.position)));
 
-        closest.and_then(|(_, id)| self.find_station(id))
+        let (picked_id, _) = active_picker.pick_closest(candidates)?;
+        self.find_station(picked_id)
     }
 
     /// Looks up a station by UUID
@@ -278,6 +268,7 @@ impl World {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::data::PickingEffector;
 
     #[test]
     fn test_sphere_coords_mapping() {
@@ -336,33 +327,21 @@ mod tests {
             .unwrap();
         let globe_hit = ray.origin + ray.direction * earth_t;
 
-        // Lens radius matching user's lowered radius
-        let lens_radius = 0.02_f32;
+        // Picking effector with radius 0.02
+        let mut picker = PickingEffector::new(0.02);
+        picker.position = globe_hit;
 
         let marker_1_pos = glam::Vec3::new(0.005, 0.0, 1.002); // Distance ~ 0.0054 <= 0.02 (inside lens, very close)
         let marker_2_pos = glam::Vec3::new(0.015, 0.0, 1.002); // Distance ~ 0.0151 <= 0.02 (inside lens, further)
         let marker_3_pos = glam::Vec3::new(0.050, 0.0, 1.002); // Distance ~ 0.0500 > 0.02 (outside lens)
 
-        let d1 = (marker_1_pos - globe_hit).length();
-        let d2 = (marker_2_pos - globe_hit).length();
-        let d3 = (marker_3_pos - globe_hit).length();
+        let candidates = vec![
+            ("uuid-1", marker_1_pos),
+            ("uuid-2", marker_2_pos),
+            ("uuid-3", marker_3_pos),
+        ];
 
-        assert!(d1 <= lens_radius);
-        assert!(d2 <= lens_radius);
-        assert!(d3 > lens_radius);
-
-        // Marker 1 is closest inside lens
-        assert!(d1 < d2);
-
-        // Simulated pick selection
-        let candidates = vec![(d1, "uuid-1"), (d2, "uuid-2"), (d3, "uuid-3")];
-
-        let picked = candidates
-            .into_iter()
-            .filter(|(d, _)| *d <= lens_radius)
-            .min_by(|a, b| a.0.partial_cmp(&b.0).unwrap())
-            .map(|(_, id)| id);
-
-        assert_eq!(picked, Some("uuid-1"));
+        let picked = picker.pick_closest(candidates.iter().map(|(id, pos)| (*id, *pos)));
+        assert_eq!(picked.map(|(id, _)| id), Some("uuid-1"));
     }
 }

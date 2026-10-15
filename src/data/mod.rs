@@ -9,7 +9,7 @@ mod load_obj;
 pub mod material;
 pub mod mesh;
 
-pub use effector::Effector;
+pub use effector::{Effector, PickingEffector};
 pub use load_obj::load_mesh_from_obj;
 
 use crate::app::app_state::canvas_renderer::CanvasRenderer;
