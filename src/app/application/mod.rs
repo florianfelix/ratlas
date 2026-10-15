@@ -1,6 +1,7 @@
 mod input;
 mod render;
 mod types;
+mod update;
 mod window;
 
 use anyhow::Result;
@@ -22,6 +23,7 @@ use crate::{
         ui::IcedUi,
     },
     data::RenderObject,
+    playback::PlaybackStatus,
     radio_api,
 };
 
@@ -152,6 +154,12 @@ impl ApplicationHandler<ProxyMessage> for Ratlas {
             ProxyMessage::PlaybackStatusChanged(status) => {
                 tracing::info!("Playback status updated: {:?}", status);
                 if let Self::Running { state, window, .. } = self {
+                    if matches!(
+                        status,
+                        PlaybackStatus::Stopped | PlaybackStatus::Error { .. }
+                    ) {
+                        state.set_playing_station(None);
+                    }
                     state.playback_status = status;
                     if let Some(w) = window {
                         w.request_redraw();
@@ -275,7 +283,17 @@ impl ApplicationHandler<ProxyMessage> for Ratlas {
                 input::handle_cursor_left(state, window, mouse);
             }
             WindowEvent::RedrawRequested => {
-                render::render_frame(state, gpu, canvas_renderer, ui, channels, window);
+                // 1. Update 3D world (camera damping & dynamic effectors)
+                state.update(window);
+
+                // 2. Project AppState into UiState
+                ui.apply_appstate(state);
+
+                // 3. Update Iced UI overlay and dispatch messages to AppState / channels
+                let viewport = update::update_ui(ui, state, channels, window);
+
+                // 4. Pure GPU rendering (strictly immutable state)
+                render::render_frame(state, gpu, canvas_renderer, ui, &viewport, window);
             }
             WindowEvent::Resized(physical_size) => {
                 gpu.handle_resize(physical_size);

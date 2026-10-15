@@ -2,60 +2,17 @@ use iced::widget::{button, column, container, row, text};
 
 use crate::app::ui::{Element, Message, UiState};
 use crate::playback::PlaybackStatus;
+// use radiobrowser::ApiStation;
 
 pub fn inspector<'a>(state: &'a UiState) -> Element<'a> {
-    let mut content = column![text("Station Details").size(16)].spacing(6);
+    let mut content = column![text("Station Details").size(18)].spacing(6);
 
-    if let Some(station) = &state.selected_station {
-        content = content
-            .push(text(&station.name).size(14))
-            .push(
-                text(format!(
-                    "Country: {}",
-                    if station.country.is_empty() {
-                        "Unknown"
-                    } else {
-                        &station.country
-                    }
-                ))
-                .size(12),
-            )
-            .push(text(format!("Clicks: {}", station.clickcount)).size(12))
-            .push(
-                text(format!(
-                    "Codec: {} ({} kbps)",
-                    station.codec, station.bitrate
-                ))
-                .size(12),
-            );
-
-        if let (Some(lat), Some(lon)) = (station.geo_lat, station.geo_long) {
-            content = content.push(text(format!("Pos: {:.2}°, {:.2}°", lat, lon)).size(11));
-        }
-
-        // Direct Play button for selected station
-        let stream_url = if !station.url_resolved.is_empty() {
-            station.url_resolved.clone()
-        } else {
-            station.url.clone()
-        };
-
-        content = content.push(
-            button("▶ Play Stream")
-                .on_press(Message::PlayStation {
-                    url: stream_url,
-                    name: station.name.clone(),
-                })
-                .padding([4, 8]),
-        );
-    } else {
-        content = content
-            .push(text("Click a station pin to view details and start playback.").size(12))
-            .push(text(format!("Button Clicks: {}", state.counter)).size(12));
+    if let Some(ref station) = state.playing_station {
+        content = content.push(column![
+            text(&station.name).size(14),
+            text(&station.country).size(10),
+        ]);
     }
-
-    // Playback status and control section
-    content = content.push(text("Audio Playback").size(14));
 
     match &state.playback_status {
         Some(PlaybackStatus::Playing { name, .. }) => {
@@ -111,5 +68,9 @@ pub fn inspector<'a>(state: &'a UiState) -> Element<'a> {
         }
     }
 
-    container(content).width(210).padding(12).into()
+    container(content)
+        .style(container::primary)
+        .width(210)
+        .padding(12)
+        .into()
 }

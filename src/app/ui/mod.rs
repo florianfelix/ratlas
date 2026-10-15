@@ -1,7 +1,7 @@
 use std::sync::Arc;
 use winit::window::Window;
 
-use crate::app::app_state::gpu::Gpu;
+use crate::app::app_state::{gpu::Gpu, AppState};
 use iced_winit::program::Program;
 
 pub mod components;
@@ -15,6 +15,7 @@ pub struct UiState {
     pub counter: i32,
     pub hovered_station_name: Option<String>,
     pub selected_station: Option<radiobrowser::ApiStation>,
+    pub playing_station: Option<radiobrowser::ApiStation>,
     pub playback_status: Option<crate::playback::PlaybackStatus>,
 }
 
@@ -110,6 +111,22 @@ impl IcedUi {
         self.window_id = iced::window::Id::unique();
         self.clipboard = iced_winit::clipboard::Clipboard::connect(window);
         self.cache = iced_runtime::user_interface::Cache::default();
+    }
+
+    /// Syncs relevant presentation state from AppState into UiState before rendering
+    pub fn apply_appstate(&mut self, state: &AppState) {
+        self.state.hovered_station_name = state
+            .hovered_station
+            .as_ref()
+            .and_then(|id| state.find_station(id))
+            .map(|s| s.name.clone());
+        self.state.selected_station = state
+            .selected_station
+            .as_ref()
+            .and_then(|id| state.find_station(id))
+            .cloned();
+        self.state.playing_station = state.playing_station().cloned();
+        self.state.playback_status = Some(state.playback_status.clone());
     }
 
     #[tracing::instrument(skip_all)]

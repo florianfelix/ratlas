@@ -59,6 +59,7 @@ pub fn handle_mouse_input(
                     .screen_to_ray(release_pos, (physical_size.width, physical_size.height));
                 let clicked_station = state.pick_station(&ray).cloned();
                 if let Some(ref station) = clicked_station {
+                    state.set_playing_station(Some(station.stationuuid.clone()));
                     let stream_url = if !station.url_resolved.is_empty() {
                         station.url_resolved.clone()
                     } else {

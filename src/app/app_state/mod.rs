@@ -18,6 +18,7 @@ pub struct AppState {
     pub radio_stations: Vec<radiobrowser::ApiStation>,
     pub hovered_station: Option<String>,  // stationuuid
     pub selected_station: Option<String>, // stationuuid
+    pub playing_station: Option<String>,  // stationuuid
     pub mouse_globe_pos: Option<glam::Vec3>,
     pub effectors: Vec<Effector>,
     pub playback_status: crate::playback::PlaybackStatus,
@@ -43,6 +44,7 @@ impl Default for AppState {
             radio_stations: Vec::new(),
             hovered_station: None,
             selected_station: None,
+            playing_station: None,
             mouse_globe_pos: None,
             effectors,
             playback_status: crate::playback::PlaybackStatus::Stopped,
@@ -51,6 +53,13 @@ impl Default for AppState {
 }
 
 impl AppState {
+    /// Updates camera damping and applies dynamic effectors.
+    pub fn update(&mut self, window: &winit::window::Window) {
+        if self.camera.update() {
+            window.request_redraw();
+        }
+        self.apply_effectors();
+    }
     /// Handles application-level actions and mutations triggered by UI messages
     pub fn handle_message(&mut self, message: &Message) {
         match message {
@@ -221,6 +230,16 @@ impl AppState {
         self.selected_station = uuid;
         self.apply_effectors();
         true
+    }
+
+    /// Returns a reference to the currently playing station, if any.
+    pub fn playing_station(&self) -> Option<&radiobrowser::ApiStation> {
+        self.playing_station.as_ref().and_then(|id| self.find_station(id))
+    }
+
+    /// Sets or clears the currently playing station.
+    pub fn set_playing_station(&mut self, uuid: Option<String>) {
+        self.playing_station = uuid;
     }
 }
 
