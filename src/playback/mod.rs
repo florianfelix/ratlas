@@ -207,14 +207,24 @@ impl PlaybackWorker {
             }
         }
 
-        // Connect to HTTP stream with redirect following and timeout
+        // Connect to HTTP stream with redirect following and connect/read timeouts.
+        // NOTE: We deliberately do NOT set client.timeout(), because client.timeout()
+        // sets a total request timeout on the ENTIRE body download, which prematurely terminates
+        // live audio streams after N seconds.
         let client = reqwest::Client::builder()
-            .timeout(std::time::Duration::from_secs(12))
+            .connect_timeout(std::time::Duration::from_secs(10))
+            .read_timeout(std::time::Duration::from_secs(15))
             .user_agent("Ratlas/0.1.0 (RadioAtlas Audio Streamer)")
             .build()
             .unwrap_or_default();
 
-        let mut response = match client.get(&url).send().await {
+        let mut response = match client
+            .get(&url)
+            .header("Icy-MetaData", "0")
+            .header("Accept", "*/*")
+            .send()
+            .await
+        {
             Ok(resp) => resp,
             Err(e) => {
                 let err_msg = format!("Stream connection failed: {e}");
@@ -258,8 +268,8 @@ impl PlaybackWorker {
             return;
         }
 
-        // Bounded channel connects network reader to Rodio mixer decoder
-        let (tx_chunks, rx_chunks) = crossbeam_channel::bounded::<Vec<u8>>(64);
+        // Bounded channel connects async network streamer to blocking Rodio mixer decoder
+        let (tx_chunks, rx_chunks) = crossbeam_channel::bounded::<Vec<u8>>(128);
         let _ = tx_chunks.send(prebuffer);
 
         // Spawn background task to feed subsequent incoming stream chunks
@@ -271,11 +281,21 @@ impl PlaybackWorker {
                 }
                 match response.chunk().await {
                     Ok(Some(chunk)) => {
-                        if stream_cancel.load(Ordering::SeqCst) {
-                            break;
-                        }
-                        if tx_chunks.send(chunk.to_vec()).is_err() {
-                            break; // Decoder dropped or reader cancelled
+                        let mut data = chunk.to_vec();
+                        loop {
+                            if stream_cancel.load(Ordering::SeqCst) {
+                                break;
+                            }
+                            match tx_chunks.try_send(data) {
+                                Ok(()) => break,
+                                Err(crossbeam_channel::TrySendError::Full(pending)) => {
+                                    data = pending;
+                                    tokio::time::sleep(std::time::Duration::from_millis(25)).await;
+                                }
+                                Err(crossbeam_channel::TrySendError::Disconnected(_)) => {
+                                    return; // Reader dropped or playback stopped
+                                }
+                            }
                         }
                     }
                     Ok(None) => break,
