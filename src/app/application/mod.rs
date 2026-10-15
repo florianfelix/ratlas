@@ -4,13 +4,14 @@ use std::sync::Arc;
 use winit::{
     application::ApplicationHandler,
     event::{ElementState, MouseButton, MouseScrollDelta, WindowEvent},
-    event_loop::{ActiveEventLoop, EventLoop, EventLoopProxy},
+    event_loop::{ActiveEventLoop, ControlFlow, EventLoop, EventLoopProxy},
     window::{Window, WindowId},
 };
 
 use crate::{
     app::{
         app_state::{AppState, Camera, canvas_renderer::CanvasRenderer, gpu::Gpu},
+        tray::{TrayAction, TrayManager, load_window_icon},
         ui::IcedUi,
     },
     data::RenderObject,
@@ -48,6 +49,22 @@ impl Channels {
 pub enum ProxyMessage {
     RadioStationsLoaded(Vec<radiobrowser::ApiStation>),
     PlaybackStatusChanged(crate::playback::PlaybackStatus),
+    TrayIconEvent(tray_icon::TrayIconEvent),
+    MenuEvent(tray_icon::menu::MenuEvent),
+}
+
+fn create_window(event_loop: &ActiveEventLoop) -> Arc<Window> {
+    let window_attributes = Window::default_attributes()
+        .with_title("Ratlas floating")
+        .with_window_icon(load_window_icon())
+        .with_inner_size(winit::dpi::LogicalSize::new(1280.0, 800.0))
+        .with_min_inner_size(winit::dpi::LogicalSize::new(640.0, 480.0));
+
+    Arc::new(
+        event_loop
+            .create_window(window_attributes)
+            .expect("unable to create window"),
+    )
 }
 
 #[allow(clippy::large_enum_variant)]
@@ -58,7 +75,7 @@ pub enum Ratlas {
     },
     Running {
         state: AppState,
-        window: Arc<Window>,
+        window: Option<Arc<Window>>,
         gpu: Gpu,
         #[allow(dead_code)]
         proxy: EventLoopProxy<ProxyMessage>,
@@ -68,12 +85,14 @@ pub enum Ratlas {
         is_mouse_pressed: bool,
         mouse_press_pos: Option<(f64, f64)>,
         last_mouse_pos: Option<(f64, f64)>,
+        tray: TrayManager,
     },
 }
 
 impl Ratlas {
     pub fn run() -> Result<()> {
         let event_loop = EventLoop::<ProxyMessage>::with_user_event().build()?;
+        event_loop.set_control_flow(ControlFlow::Wait);
         let proxy = event_loop.create_proxy();
         let channels = Channels::new();
 
@@ -90,9 +109,82 @@ impl Ratlas {
             crate::playback::playback_worker(rx_playback, proxy_playback);
         });
 
+        // 3. Tray and Menu event forwarding to Proxy
+        TrayManager::init_event_handlers(
+            proxy.clone(),
+            ProxyMessage::TrayIconEvent,
+            ProxyMessage::MenuEvent,
+        );
+
         let mut app = Ratlas::Uninitialized { proxy, channels };
         event_loop.run_app(&mut app)?;
         Ok(())
+    }
+
+    fn hide_window(&mut self) {
+        if let Self::Running {
+            window,
+            gpu,
+            canvas_renderer,
+            ui,
+            is_mouse_pressed,
+            mouse_press_pos,
+            last_mouse_pos,
+            ..
+        } = self
+        {
+            ui.disconnect_window();
+            gpu.destroy_surface();
+            canvas_renderer.gpu.destroy_surface();
+
+            if let Some(w) = window.take() {
+                let remaining = Arc::strong_count(&w) - 1;
+                tracing::info!(
+                    "Window dropped: unmapping surface (remaining Arc references: {})",
+                    remaining
+                );
+                drop(w);
+            }
+
+            *is_mouse_pressed = false;
+            *mouse_press_pos = None;
+            *last_mouse_pos = None;
+            tracing::info!("Window successfully hidden to system tray");
+        }
+    }
+
+    fn restore_window(&mut self, event_loop: &ActiveEventLoop) {
+        if let Self::Running {
+            window,
+            gpu,
+            canvas_renderer,
+            ui,
+            ..
+        } = self
+        {
+            if window.is_none() {
+                let new_window = create_window(event_loop);
+                gpu.recreate_surface(new_window.clone());
+                canvas_renderer.gpu = gpu.clone();
+                ui.reconnect_window(new_window.clone());
+                new_window.request_redraw();
+                *window = Some(new_window);
+                tracing::info!("Window restored from system tray");
+            }
+        }
+    }
+
+    fn toggle_window(&mut self, event_loop: &ActiveEventLoop) {
+        let is_open = match self {
+            Self::Running { window, .. } => window.is_some(),
+            _ => false,
+        };
+
+        if is_open {
+            self.hide_window();
+        } else {
+            self.restore_window(event_loop);
+        }
     }
 }
 
@@ -100,19 +192,13 @@ impl ApplicationHandler<ProxyMessage> for Ratlas {
     #[tracing::instrument(skip_all)]
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         if let Self::Uninitialized { proxy, channels } = self {
-            let window_attributes = Window::default_attributes()
-                .with_title("Ratlas floating")
-                .with_inner_size(winit::dpi::LogicalSize::new(1280.0, 800.0))
-                .with_min_inner_size(winit::dpi::LogicalSize::new(640.0, 480.0));
-
-            let window = Arc::new(
-                event_loop
-                    .create_window(window_attributes)
-                    .expect("unable to create window"),
-            );
+            let window = create_window(event_loop);
             let gpu = pollster::block_on(Gpu::from_window(window.clone()));
             let ui = IcedUi::new(window.clone(), &gpu);
             let canvas_renderer = CanvasRenderer::new(gpu.clone());
+
+            // Build system tray icon and context menu
+            let tray = TrayManager::new().expect("failed to create tray icon");
 
             // Create initial world in AppState and load default sphere object
             let mut state = AppState::default();
@@ -137,7 +223,7 @@ impl ApplicationHandler<ProxyMessage> for Ratlas {
 
             *self = Self::Running {
                 state,
-                window,
+                window: Some(window),
                 gpu,
                 proxy: proxy.clone(),
                 channels: channels.clone(),
@@ -146,11 +232,12 @@ impl ApplicationHandler<ProxyMessage> for Ratlas {
                 is_mouse_pressed: false,
                 mouse_press_pos: None,
                 last_mouse_pos: None,
+                tray,
             };
         }
     }
 
-    fn user_event(&mut self, _event_loop: &ActiveEventLoop, event: ProxyMessage) {
+    fn user_event(&mut self, event_loop: &ActiveEventLoop, event: ProxyMessage) {
         match event {
             ProxyMessage::RadioStationsLoaded(stations) => {
                 tracing::info!(
@@ -169,14 +256,48 @@ impl ApplicationHandler<ProxyMessage> for Ratlas {
                 }
                 if let Self::Running { state, window, .. } = self {
                     state.update_station_markers(stations);
-                    window.request_redraw();
+                    if let Some(w) = window {
+                        w.request_redraw();
+                    }
                 }
             }
             ProxyMessage::PlaybackStatusChanged(status) => {
                 tracing::info!("Playback status updated: {:?}", status);
                 if let Self::Running { state, window, .. } = self {
                     state.playback_status = status;
-                    window.request_redraw();
+                    if let Some(w) = window {
+                        w.request_redraw();
+                    }
+                }
+            }
+            ProxyMessage::TrayIconEvent(tray_event) => {
+                if let Self::Running { tray, .. } = self {
+                    if let Some(action) = tray.handle_tray_event(&tray_event) {
+                        match action {
+                            TrayAction::ToggleWindow => {
+                                self.toggle_window(event_loop);
+                            }
+                            TrayAction::Quit => {
+                                tracing::info!("Tray quit action triggered");
+                                event_loop.exit();
+                            }
+                        }
+                    }
+                }
+            }
+            ProxyMessage::MenuEvent(menu_event) => {
+                if let Self::Running { tray, .. } = self {
+                    if let Some(action) = tray.handle_menu_event(&menu_event) {
+                        match action {
+                            TrayAction::ToggleWindow => {
+                                self.toggle_window(event_loop);
+                            }
+                            TrayAction::Quit => {
+                                tracing::info!("Tray menu quit selected: exiting application");
+                                event_loop.exit();
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -189,14 +310,14 @@ impl ApplicationHandler<ProxyMessage> for Ratlas {
     #[tracing::instrument(skip_all)]
     fn window_event(
         &mut self,
-        event_loop: &ActiveEventLoop,
+        _event_loop: &ActiveEventLoop,
         _window_id: WindowId,
         window_event: WindowEvent,
     ) {
         let Self::Running {
             state,
             gpu,
-            window,
+            window: opt_window,
             channels,
             ui,
             canvas_renderer,
@@ -206,6 +327,10 @@ impl ApplicationHandler<ProxyMessage> for Ratlas {
             ..
         } = self
         else {
+            return;
+        };
+
+        let Some(window) = opt_window.as_ref() else {
             return;
         };
 
@@ -395,7 +520,8 @@ impl ApplicationHandler<ProxyMessage> for Ratlas {
                         window.request_redraw();
                     }
                     Err(wgpu::SurfaceError::OutOfMemory) => {
-                        event_loop.exit();
+                        // Out of memory; close app cleanly
+                        std::process::exit(1);
                     }
                     Err(e) => {
                         tracing::error!("Surface error: {:?}", e);
@@ -407,7 +533,7 @@ impl ApplicationHandler<ProxyMessage> for Ratlas {
                 window.request_redraw();
             }
             WindowEvent::CloseRequested => {
-                event_loop.exit();
+                self.hide_window();
             }
             _ => {}
         }

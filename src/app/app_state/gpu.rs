@@ -6,9 +6,10 @@ use winit::dpi::PhysicalSize;
 
 #[derive(Clone)]
 pub struct Gpu {
+    pub instance: wgpu::Instance,
     pub device: Arc<wgpu::Device>,
     pub queue: Arc<wgpu::Queue>,
-    pub surface: Arc<wgpu::Surface<'static>>,
+    pub surface: Option<Arc<wgpu::Surface<'static>>>,
     pub surface_config: wgpu::SurfaceConfiguration,
     pub adapter: Arc<wgpu::Adapter>,
     pub depth_texture: Arc<wgpu::Texture>,
@@ -89,14 +90,35 @@ impl Gpu {
         let (depth_texture, depth_view) = Self::create_depth_texture(&device, &surface_config);
 
         Self {
+            instance,
             device,
             queue,
-            surface,
+            surface: Some(surface),
             surface_config,
             adapter,
             depth_texture: Arc::new(depth_texture),
             depth_view: Arc::new(depth_view),
         }
+    }
+
+    /// Recreates the surface and depth texture for a newly restored window,
+    /// reusing the existing adapter, device, and queue.
+    pub fn recreate_surface(&mut self, window: Arc<winit::window::Window>) {
+        let surface = Arc::new(self.instance.create_surface(window.clone()).unwrap());
+        let size = window.inner_size();
+        self.surface_config.width = size.width.max(1);
+        self.surface_config.height = size.height.max(1);
+        surface.configure(&self.device, &self.surface_config);
+        let (depth_texture, depth_view) =
+            Self::create_depth_texture(&self.device, &self.surface_config);
+        self.surface = Some(surface);
+        self.depth_texture = Arc::new(depth_texture);
+        self.depth_view = Arc::new(depth_view);
+    }
+
+    /// Drops the WGPU surface, releasing the underlying Arc<Window> reference.
+    pub fn destroy_surface(&mut self) {
+        self.surface = None;
     }
 
     pub fn create_iced_renderer(&self) -> iced_wgpu::Renderer {
@@ -119,7 +141,9 @@ impl Gpu {
                 submission_index: None,
                 timeout: None,
             });
-            self.surface.configure(&self.device, &self.surface_config);
+            if let Some(ref surface) = self.surface {
+                surface.configure(&self.device, &self.surface_config);
+            }
 
             let (depth_texture, depth_view) =
                 Self::create_depth_texture(&self.device, &self.surface_config);
@@ -138,7 +162,10 @@ impl Gpu {
     where
         F: FnOnce(&wgpu::TextureView),
     {
-        let frame = self.surface.get_current_texture()?;
+        let Some(ref surface) = self.surface else {
+            return Ok(());
+        };
+        let frame = surface.get_current_texture()?;
         let view = frame
             .texture
             .create_view(&wgpu::TextureViewDescriptor::default());
@@ -188,6 +215,7 @@ impl Gpu {
         render_iced(&view);
 
         frame.present();
+
         Ok(())
     }
 }

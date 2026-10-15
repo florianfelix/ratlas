@@ -100,6 +100,18 @@ impl IcedUi {
         }
     }
 
+    /// Disconnects the UI clipboard from the window, releasing the Arc<Window> reference.
+    pub fn disconnect_window(&mut self) {
+        self.clipboard = iced_winit::clipboard::Clipboard::unconnected();
+    }
+
+    /// Reconnects the UI clipboard and window state to a newly restored window
+    pub fn reconnect_window(&mut self, window: Arc<Window>) {
+        self.window_id = iced::window::Id::unique();
+        self.clipboard = iced_winit::clipboard::Clipboard::connect(window);
+        self.cache = iced_runtime::user_interface::Cache::default();
+    }
+
     #[tracing::instrument(skip_all)]
     pub fn handle_event(&mut self, window: &Window, event: &winit::event::WindowEvent) -> bool {
         match event {
