@@ -1,6 +1,6 @@
 use iced::wgpu;
 use std::ffi::OsStr;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use wgpu::util::DeviceExt;
 
@@ -15,6 +15,32 @@ pub use load_obj::load_mesh_from_obj;
 use crate::app::app_state::canvas_renderer::CanvasRenderer;
 use crate::data::material::Material;
 use crate::data::mesh::Mesh;
+
+/// Resolves an asset file path, checking the current directory, executable directory,
+/// parent directory (e.g. AppImage mounted bundle), or system share directories.
+pub fn resolve_asset_path(path: impl AsRef<Path>) -> PathBuf {
+    let path = path.as_ref();
+    if path.exists() {
+        return path.to_path_buf();
+    }
+    if let Ok(exe_path) = std::env::current_exe() {
+        if let Some(exe_dir) = exe_path.parent() {
+            let candidate1 = exe_dir.join(path);
+            if candidate1.exists() {
+                return candidate1;
+            }
+            let candidate2 = exe_dir.join("..").join(path);
+            if candidate2.exists() {
+                return candidate2;
+            }
+            let candidate3 = exe_dir.join("..").join("share").join("ratlas").join(path);
+            if candidate3.exists() {
+                return candidate3;
+            }
+        }
+    }
+    path.to_path_buf()
+}
 
 // 3. The Unified RenderObject.
 // Combines geometry mesh, visual material, and a dedicated Uniform Buffer for spatial transform.
@@ -97,16 +123,18 @@ impl RenderObject {
         obj_path: impl AsRef<Path>,
         texture_path: impl AsRef<Path>,
     ) -> Self {
+        let resolved_obj = resolve_asset_path(obj_path.as_ref());
+        let resolved_texture = resolve_asset_path(texture_path.as_ref());
+
         let gpu = &canvas_renderer.gpu;
-        let mesh = Mesh::from_obj(&gpu.device, obj_path.as_ref()).unwrap_or_else(|e| {
+        let mesh = Mesh::from_obj(&gpu.device, &resolved_obj).unwrap_or_else(|e| {
             tracing::warn!(
                 "Failed to load {:?} ({e}), using fallback mesh",
-                obj_path.as_ref()
+                resolved_obj
             );
             Mesh::fallback_triangle(&gpu.device)
         });
-        let name = obj_path
-            .as_ref()
+        let name = resolved_obj
             .file_name()
             .unwrap_or(OsStr::new("default_name"))
             .to_str()
@@ -117,7 +145,7 @@ impl RenderObject {
             &gpu.queue,
             canvas_renderer.pipelines.default_pipeline.clone(),
             &canvas_renderer.pipelines.texture_layout,
-            texture_path,
+            &resolved_texture,
         );
 
         Self::new(
