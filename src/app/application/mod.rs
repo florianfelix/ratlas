@@ -195,6 +195,8 @@ impl ApplicationHandler<ProxyMessage> for Ratlas {
                 *is_mouse_pressed = *button_state == ElementState::Pressed;
                 if !*is_mouse_pressed {
                     *last_mouse_pos = None;
+                    state.camera.stop_drag();
+                    window.request_redraw();
                 }
             }
             WindowEvent::CursorMoved { position, .. } => {
@@ -204,7 +206,7 @@ impl ApplicationHandler<ProxyMessage> for Ratlas {
                         let delta_x = (current_pos.0 - prev_x) as f32;
                         let delta_y = (current_pos.1 - prev_y) as f32;
 
-                        // Rotate camera around target
+                        // Rotate camera around target with distance-scaled sensitivity and momentum
                         state.camera.rotate_around_target(delta_x, delta_y);
                         window.request_redraw();
                     }
@@ -222,6 +224,7 @@ impl ApplicationHandler<ProxyMessage> for Ratlas {
             WindowEvent::CursorLeft { .. } => {
                 *is_mouse_pressed = false;
                 *last_mouse_pos = None;
+                state.camera.stop_drag();
             }
             _ => {}
         }
@@ -231,6 +234,11 @@ impl ApplicationHandler<ProxyMessage> for Ratlas {
                 let physical_size = window.inner_size();
                 if physical_size.width == 0 || physical_size.height == 0 {
                     return;
+                }
+
+                // Smoothly update camera towards target angles/radius with damping
+                if state.camera.update() {
+                    window.request_redraw();
                 }
 
                 // 1. Update UI overlay and dispatch messages directly to AppState
