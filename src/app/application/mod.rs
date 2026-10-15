@@ -1,71 +1,29 @@
+mod input;
+mod render;
+mod types;
+mod window;
+
 use anyhow::Result;
-use iced_wgpu::wgpu;
 use std::sync::Arc;
 use winit::{
     application::ApplicationHandler,
-    event::{ElementState, MouseButton, MouseScrollDelta, WindowEvent},
+    event::WindowEvent,
     event_loop::{ActiveEventLoop, ControlFlow, EventLoop, EventLoopProxy},
     window::{Window, WindowId},
 };
 
+pub use input::MouseTracker;
+pub use types::{Channels, ProxyMessage, RadioMessage};
+
 use crate::{
     app::{
-        app_state::{AppState, Camera, canvas_renderer::CanvasRenderer, gpu::Gpu},
-        tray::{TrayAction, TrayManager, load_window_icon},
+        app_state::{AppState, canvas_renderer::CanvasRenderer, gpu::Gpu},
+        tray::{TrayAction, TrayManager},
         ui::IcedUi,
     },
     data::RenderObject,
     radio_api,
 };
-
-#[derive(Debug, Clone)]
-pub enum RadioMessage {
-    GetPopular,
-}
-
-#[derive(Clone)]
-pub struct Channels {
-    pub tx_radio: crossbeam_channel::Sender<RadioMessage>,
-    pub rx_radio: crossbeam_channel::Receiver<RadioMessage>,
-    pub tx_playback: crossbeam_channel::Sender<crate::playback::PlaybackMessage>,
-    pub rx_playback: crossbeam_channel::Receiver<crate::playback::PlaybackMessage>,
-}
-
-impl Channels {
-    pub fn new() -> Self {
-        let (tx_radio, rx_radio) = crossbeam_channel::unbounded::<RadioMessage>();
-        let (tx_playback, rx_playback) =
-            crossbeam_channel::unbounded::<crate::playback::PlaybackMessage>();
-        Self {
-            tx_radio,
-            rx_radio,
-            tx_playback,
-            rx_playback,
-        }
-    }
-}
-
-#[derive(Debug, Clone)]
-pub enum ProxyMessage {
-    RadioStationsLoaded(Vec<radiobrowser::ApiStation>),
-    PlaybackStatusChanged(crate::playback::PlaybackStatus),
-    TrayIconEvent(tray_icon::TrayIconEvent),
-    MenuEvent(tray_icon::menu::MenuEvent),
-}
-
-fn create_window(event_loop: &ActiveEventLoop) -> Arc<Window> {
-    let window_attributes = Window::default_attributes()
-        .with_title("Ratlas floating")
-        .with_window_icon(load_window_icon())
-        .with_inner_size(winit::dpi::LogicalSize::new(1280.0, 800.0))
-        .with_min_inner_size(winit::dpi::LogicalSize::new(640.0, 480.0));
-
-    Arc::new(
-        event_loop
-            .create_window(window_attributes)
-            .expect("unable to create window"),
-    )
-}
 
 #[allow(clippy::large_enum_variant)]
 pub enum Ratlas {
@@ -82,9 +40,7 @@ pub enum Ratlas {
         channels: Channels,
         ui: IcedUi,
         canvas_renderer: CanvasRenderer,
-        is_mouse_pressed: bool,
-        mouse_press_pos: Option<(f64, f64)>,
-        last_mouse_pos: Option<(f64, f64)>,
+        mouse: MouseTracker,
         tray: TrayManager,
     },
 }
@@ -120,79 +76,13 @@ impl Ratlas {
         event_loop.run_app(&mut app)?;
         Ok(())
     }
-
-    fn hide_window(&mut self) {
-        if let Self::Running {
-            window,
-            gpu,
-            canvas_renderer,
-            ui,
-            is_mouse_pressed,
-            mouse_press_pos,
-            last_mouse_pos,
-            ..
-        } = self
-        {
-            ui.disconnect_window();
-            gpu.destroy_surface();
-            canvas_renderer.gpu.destroy_surface();
-
-            if let Some(w) = window.take() {
-                let remaining = Arc::strong_count(&w) - 1;
-                tracing::info!(
-                    "Window dropped: unmapping surface (remaining Arc references: {})",
-                    remaining
-                );
-                drop(w);
-            }
-
-            *is_mouse_pressed = false;
-            *mouse_press_pos = None;
-            *last_mouse_pos = None;
-            tracing::info!("Window successfully hidden to system tray");
-        }
-    }
-
-    fn restore_window(&mut self, event_loop: &ActiveEventLoop) {
-        if let Self::Running {
-            window,
-            gpu,
-            canvas_renderer,
-            ui,
-            ..
-        } = self
-        {
-            if window.is_none() {
-                let new_window = create_window(event_loop);
-                gpu.recreate_surface(new_window.clone());
-                canvas_renderer.gpu = gpu.clone();
-                ui.reconnect_window(new_window.clone());
-                new_window.request_redraw();
-                *window = Some(new_window);
-                tracing::info!("Window restored from system tray");
-            }
-        }
-    }
-
-    fn toggle_window(&mut self, event_loop: &ActiveEventLoop) {
-        let is_open = match self {
-            Self::Running { window, .. } => window.is_some(),
-            _ => false,
-        };
-
-        if is_open {
-            self.hide_window();
-        } else {
-            self.restore_window(event_loop);
-        }
-    }
 }
 
 impl ApplicationHandler<ProxyMessage> for Ratlas {
     #[tracing::instrument(skip_all)]
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         if let Self::Uninitialized { proxy, channels } = self {
-            let window = create_window(event_loop);
+            let window = window::create_window(event_loop);
             let gpu = pollster::block_on(Gpu::from_window(window.clone()));
             let ui = IcedUi::new(window.clone(), &gpu);
             let canvas_renderer = CanvasRenderer::new(gpu.clone());
@@ -229,9 +119,7 @@ impl ApplicationHandler<ProxyMessage> for Ratlas {
                 channels: channels.clone(),
                 ui,
                 canvas_renderer,
-                is_mouse_pressed: false,
-                mouse_press_pos: None,
-                last_mouse_pos: None,
+                mouse: MouseTracker::default(),
                 tray,
             };
         }
@@ -271,11 +159,27 @@ impl ApplicationHandler<ProxyMessage> for Ratlas {
                 }
             }
             ProxyMessage::TrayIconEvent(tray_event) => {
-                if let Self::Running { tray, .. } = self {
+                if let Self::Running {
+                    tray,
+                    window,
+                    gpu,
+                    canvas_renderer,
+                    ui,
+                    mouse,
+                    ..
+                } = self
+                {
                     if let Some(action) = tray.handle_tray_event(&tray_event) {
                         match action {
                             TrayAction::ToggleWindow => {
-                                self.toggle_window(event_loop);
+                                window::toggle_window(
+                                    event_loop,
+                                    window,
+                                    gpu,
+                                    canvas_renderer,
+                                    ui,
+                                    mouse,
+                                );
                             }
                             TrayAction::Quit => {
                                 tracing::info!("Tray quit action triggered");
@@ -286,11 +190,27 @@ impl ApplicationHandler<ProxyMessage> for Ratlas {
                 }
             }
             ProxyMessage::MenuEvent(menu_event) => {
-                if let Self::Running { tray, .. } = self {
+                if let Self::Running {
+                    tray,
+                    window,
+                    gpu,
+                    canvas_renderer,
+                    ui,
+                    mouse,
+                    ..
+                } = self
+                {
                     if let Some(action) = tray.handle_menu_event(&menu_event) {
                         match action {
                             TrayAction::ToggleWindow => {
-                                self.toggle_window(event_loop);
+                                window::toggle_window(
+                                    event_loop,
+                                    window,
+                                    gpu,
+                                    canvas_renderer,
+                                    ui,
+                                    mouse,
+                                );
                             }
                             TrayAction::Quit => {
                                 tracing::info!("Tray menu quit selected: exiting application");
@@ -321,9 +241,7 @@ impl ApplicationHandler<ProxyMessage> for Ratlas {
             channels,
             ui,
             canvas_renderer,
-            is_mouse_pressed,
-            mouse_press_pos,
-            last_mouse_pos,
+            mouse,
             ..
         } = self
         else {
@@ -339,201 +257,32 @@ impl ApplicationHandler<ProxyMessage> for Ratlas {
         }
 
         // Camera orbit, hover, selection, and effector interaction on viewport mouse events
-        match &window_event {
+        match window_event {
             WindowEvent::MouseInput {
-                button: MouseButton::Left,
+                button,
                 state: button_state,
                 ..
             } => {
-                let pressed = *button_state == ElementState::Pressed;
-                *is_mouse_pressed = pressed;
-                if pressed {
-                    *mouse_press_pos = *last_mouse_pos;
-                } else {
-                    state.camera.stop_drag();
-
-                    // If released with minimal mouse travel, treat as a click / selection
-                    if let (Some(press_pos), Some(release_pos)) =
-                        (*mouse_press_pos, *last_mouse_pos)
-                    {
-                        let dx = (release_pos.0 - press_pos.0) as f32;
-                        let dy = (release_pos.1 - press_pos.1) as f32;
-                        let dist_sq = dx * dx + dy * dy;
-
-                        if dist_sq < 25.0 {
-                            // Less than 5px movement: process click
-                            let physical_size = window.inner_size();
-                            let ray = state.camera.screen_to_ray(
-                                release_pos,
-                                (physical_size.width, physical_size.height),
-                            );
-                            let clicked_station = state.pick_station(&ray).cloned();
-                            if let Some(ref station) = clicked_station {
-                                let stream_url = if !station.url_resolved.is_empty() {
-                                    station.url_resolved.clone()
-                                } else {
-                                    station.url.clone()
-                                };
-                                let _ = channels.tx_playback.send(
-                                    crate::playback::PlaybackMessage::Play {
-                                        url: stream_url,
-                                        name: station.name.clone(),
-                                    },
-                                );
-                            }
-                            state.set_selected_station(
-                                clicked_station.as_ref().map(|s| s.stationuuid.clone()),
-                            );
-                            window.request_redraw();
-                        }
-                    }
-
-                    *mouse_press_pos = None;
-                    *last_mouse_pos = None;
-                    window.request_redraw();
-                }
+                input::handle_mouse_input(button, button_state, state, channels, window, mouse);
             }
             WindowEvent::CursorMoved { position, .. } => {
-                let current_pos = (position.x, position.y);
-                let physical_size = window.inner_size();
-                let ray = state
-                    .camera
-                    .screen_to_ray(current_pos, (physical_size.width, physical_size.height));
-
-                // Update 3D point on globe under cursor for mouse lens effector
-                state.mouse_globe_pos = ray
-                    .intersect_sphere(glam::Vec3::ZERO, Camera::SPHERE_RADIUS)
-                    .map(|t| ray.origin + ray.direction * t);
-
-                if *is_mouse_pressed {
-                    if let Some((prev_x, prev_y)) = *last_mouse_pos {
-                        let delta_x = (current_pos.0 - prev_x) as f32;
-                        let delta_y = (current_pos.1 - prev_y) as f32;
-
-                        // Rotate camera around target with distance-scaled sensitivity and momentum
-                        state.camera.rotate_around_target(delta_x, delta_y);
-                        window.request_redraw();
-                    }
-                } else {
-                    // Hover detection when mouse is moving without dragging
-                    let hovered_uuid = state.pick_station(&ray).map(|s| s.stationuuid.clone());
-                    state.set_hovered_station(hovered_uuid);
-                    // Mouse lens effector follows cursor across globe surface
-                    state.apply_effectors();
-                    window.request_redraw();
-                }
-
-                *last_mouse_pos = Some(current_pos);
+                input::handle_cursor_moved(position, state, window, mouse);
             }
             WindowEvent::MouseWheel { delta, .. } => {
-                let zoom_amount = match delta {
-                    MouseScrollDelta::LineDelta(_x, y) => *y * 0.25,
-                    MouseScrollDelta::PixelDelta(pos) => (pos.y as f32) * 0.005,
-                };
-                state.camera.zoom(zoom_amount);
-                window.request_redraw();
+                input::handle_mouse_wheel(delta, state, window);
             }
             WindowEvent::CursorLeft { .. } => {
-                *is_mouse_pressed = false;
-                *last_mouse_pos = None;
-                *mouse_press_pos = None;
-                state.mouse_globe_pos = None;
-                state.camera.stop_drag();
-                state.set_hovered_station(None);
-                state.apply_effectors();
-                window.request_redraw();
+                input::handle_cursor_left(state, window, mouse);
             }
-            _ => {}
-        }
-
-        match window_event {
             WindowEvent::RedrawRequested => {
-                let physical_size = window.inner_size();
-                if physical_size.width == 0 || physical_size.height == 0 {
-                    return;
-                }
-
-                // Smoothly update camera towards target angles/radius with damping
-                if state.camera.update() {
-                    window.request_redraw();
-                }
-
-                // Apply dynamic effectors based on current camera and mouse positions
-                state.apply_effectors();
-
-                // Sync hovered / selected station details and playback status to UI overlay state
-                ui.state.hovered_station_name = state
-                    .hovered_station
-                    .as_ref()
-                    .and_then(|id| state.find_station(id))
-                    .map(|s| s.name.clone());
-                ui.state.selected_station = state
-                    .selected_station
-                    .as_ref()
-                    .and_then(|id| state.find_station(id))
-                    .cloned();
-                ui.state.playback_status = Some(state.playback_status.clone());
-
-                // 1. Update UI overlay and dispatch messages directly to AppState or playback channel
-                let ui_result = ui.update(window);
-                for message in &ui_result.messages {
-                    match message {
-                        crate::app::ui::Message::TogglePlayback => {
-                            let _ = channels
-                                .tx_playback
-                                .send(crate::playback::PlaybackMessage::TogglePlayPause);
-                        }
-                        crate::app::ui::Message::StopPlayback => {
-                            let _ = channels
-                                .tx_playback
-                                .send(crate::playback::PlaybackMessage::Stop);
-                        }
-                        crate::app::ui::Message::PlayStation { url, name } => {
-                            let _ =
-                                channels
-                                    .tx_playback
-                                    .send(crate::playback::PlaybackMessage::Play {
-                                        url: url.clone(),
-                                        name: name.clone(),
-                                    });
-                        }
-                        _ => {
-                            state.handle_message(message);
-                        }
-                    }
-                    window.request_redraw();
-                }
-
-                // 2. Update 3D viewport canvas with camera and world objects
-                let aspect_ratio = physical_size.width as f32 / physical_size.height as f32;
-                canvas_renderer.update(&state.camera, &state.world.objects, aspect_ratio);
-
-                // 3. Render scene from AppState world + UI overlay
-                let surface_format = gpu.surface_config.format;
-                match gpu.render_frame(canvas_renderer, &state.world.objects, |view| {
-                    ui.draw(surface_format, view, &ui_result.viewport);
-                }) {
-                    Ok(_) => {}
-                    Err(wgpu::SurfaceError::Lost | wgpu::SurfaceError::Outdated) => {
-                        let size = window.inner_size();
-                        gpu.handle_resize(size);
-                        window.request_redraw();
-                    }
-                    Err(wgpu::SurfaceError::OutOfMemory) => {
-                        // Out of memory; close app cleanly
-                        std::process::exit(1);
-                    }
-                    Err(e) => {
-                        tracing::error!("Surface error: {:?}", e);
-                    }
-                }
+                render::render_frame(state, gpu, canvas_renderer, ui, channels, window);
             }
             WindowEvent::Resized(physical_size) => {
                 gpu.handle_resize(physical_size);
                 window.request_redraw();
             }
             WindowEvent::CloseRequested => {
-                self.hide_window();
+                window::hide_window(opt_window, gpu, canvas_renderer, ui, mouse);
             }
             _ => {}
         }
