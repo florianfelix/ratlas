@@ -8,6 +8,7 @@ pub fn toolbar<'a>(state: &'a UiState) -> Element<'a> {
         // button("Reset Camera").on_press(Message::ResetCamera),
     ]
     .spacing(12)
+    .height(12.0)
     .align_y(iced::Alignment::Center);
 
     if let Some(hovered) = &state.hovered_station_name {
