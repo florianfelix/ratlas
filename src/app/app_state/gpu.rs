@@ -11,9 +11,37 @@ pub struct Gpu {
     pub surface: Arc<wgpu::Surface<'static>>,
     pub surface_config: wgpu::SurfaceConfiguration,
     pub adapter: Arc<wgpu::Adapter>,
+    pub depth_texture: Arc<wgpu::Texture>,
+    pub depth_view: Arc<wgpu::TextureView>,
 }
 
 impl Gpu {
+    pub const DEPTH_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Depth32Float;
+
+    pub fn create_depth_texture(
+        device: &wgpu::Device,
+        config: &wgpu::SurfaceConfiguration,
+    ) -> (wgpu::Texture, wgpu::TextureView) {
+        let size = wgpu::Extent3d {
+            width: config.width.max(1),
+            height: config.height.max(1),
+            depth_or_array_layers: 1,
+        };
+        let desc = wgpu::TextureDescriptor {
+            label: Some("Depth Texture"),
+            size,
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: Self::DEPTH_FORMAT,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
+            view_formats: &[],
+        };
+        let texture = device.create_texture(&desc);
+        let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+        (texture, view)
+    }
+
     pub async fn from_window(window: Arc<winit::window::Window>) -> Self {
         let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
             backends: wgpu::Backends::PRIMARY,
@@ -58,12 +86,16 @@ impl Gpu {
         };
         surface.configure(&device, &surface_config);
 
+        let (depth_texture, depth_view) = Self::create_depth_texture(&device, &surface_config);
+
         Self {
             device,
             queue,
             surface,
             surface_config,
             adapter,
+            depth_texture: Arc::new(depth_texture),
+            depth_view: Arc::new(depth_view),
         }
     }
 
@@ -88,6 +120,11 @@ impl Gpu {
                 timeout: None,
             });
             self.surface.configure(&self.device, &self.surface_config);
+
+            let (depth_texture, depth_view) =
+                Self::create_depth_texture(&self.device, &self.surface_config);
+            self.depth_texture = Arc::new(depth_texture);
+            self.depth_view = Arc::new(depth_view);
         }
     }
 
@@ -106,7 +143,7 @@ impl Gpu {
             .texture
             .create_view(&wgpu::TextureViewDescriptor::default());
 
-        // 1. Clear / Scene Pass (3D viewport rendering)
+        // 1. Clear / Scene Pass (3D viewport rendering with depth testing)
         let mut encoder = self
             .device
             .create_command_encoder(&wgpu::CommandEncoderDescriptor {
@@ -130,7 +167,14 @@ impl Gpu {
                     },
                     depth_slice: None,
                 })],
-                depth_stencil_attachment: None,
+                depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                    view: &self.depth_view,
+                    depth_ops: Some(wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(1.0),
+                        store: wgpu::StoreOp::Store,
+                    }),
+                    stencil_ops: None,
+                }),
                 timestamp_writes: None,
                 occlusion_query_set: None,
             });

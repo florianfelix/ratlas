@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use iced::wgpu;
 
-use crate::data::mesh::Vertex;
+use crate::{app::app_state::gpu::Gpu, data::mesh::Vertex};
 
 /// Encapsulates GPU pipeline resources and bind group layouts.
 /// Can be shared across materials and renderers.
@@ -98,7 +98,13 @@ impl PipelineManager {
                     unclipped_depth: false,
                     conservative: false,
                 },
-                depth_stencil: None,
+                depth_stencil: Some(wgpu::DepthStencilState {
+                    format: Gpu::DEPTH_FORMAT,
+                    depth_write_enabled: true,
+                    depth_compare: wgpu::CompareFunction::Less,
+                    stencil: wgpu::StencilState::default(),
+                    bias: wgpu::DepthBiasState::default(),
+                }),
                 multisample: wgpu::MultisampleState::default(),
                 multiview: None,
                 cache: None,

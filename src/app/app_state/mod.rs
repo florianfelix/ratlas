@@ -56,7 +56,8 @@ impl AppState {
         };
 
         // 3. Create new station markers from stations and position on sphere
-        let sphere_radius = 1.0_f32;
+        // Slightly elevated (1.002) to prevent polygon z-fighting with the globe surface
+        let sphere_radius = 1.002_f32;
         let marker_scale = glam::Vec3::splat(0.06);
 
         let mut new_markers = Vec::with_capacity(self.radio_stations.len());
