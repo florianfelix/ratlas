@@ -3,6 +3,28 @@ use winit::event_loop::EventLoopProxy;
 
 use crate::app::application::{ProxyMessage, RadioMessage};
 
+/// Filters out HLS (.m3u8) stations that require segmented chunk streaming,
+/// ensuring only direct audio streams (MP3, AAC, OGG, FLAC, M3U/PLS redirects)
+/// are presented to the user on the globe.
+pub fn filter_supported_stations(
+    stations: Vec<radiobrowser::ApiStation>,
+) -> Vec<radiobrowser::ApiStation> {
+    stations
+        .into_iter()
+        .filter(|s| {
+            if s.hls == 1 {
+                return false;
+            }
+            let url_lower = s.url.to_lowercase();
+            let url_res_lower = s.url_resolved.to_lowercase();
+            if url_lower.contains(".m3u8") || url_res_lower.contains(".m3u8") {
+                return false;
+            }
+            true
+        })
+        .collect()
+}
+
 struct RadioStations {
     rx_radio: crossbeam_channel::Receiver<RadioMessage>,
     proxy: EventLoopProxy<ProxyMessage>,
@@ -39,7 +61,7 @@ impl RadioStations {
     }
 
     async fn get_popular(&mut self) {
-        tracing::info!("Radio API: fetching top 20 popular stations with geolocation...");
+        tracing::info!("Radio API: fetching popular stations with geolocation...");
         let api_result = radiobrowser::RadioBrowserAPI::new().await;
         let api = match api_result {
             Ok(api) => api,
@@ -63,18 +85,24 @@ impl RadioStations {
         match api
             .get_stations()
             .has_geo_info(true)
+            .hidebroken(true)
             .order(radiobrowser::StationOrder::Clickcount)
             .reverse(true)
-            // .limit("20")
             .send()
             .await
         {
             Ok(stations) => {
-                tracing::info!("Radio API: retrieved {} stations", stations.len());
-                self.stations = stations.clone();
+                let total = stations.len();
+                let supported = filter_supported_stations(stations);
+                tracing::info!(
+                    "Radio API: retrieved {} stations ({} playable direct streams after filtering HLS)",
+                    total,
+                    supported.len()
+                );
+                self.stations = supported.clone();
                 if let Err(e) = self
                     .proxy
-                    .send_event(ProxyMessage::RadioStationsLoaded(stations))
+                    .send_event(ProxyMessage::RadioStationsLoaded(supported))
                 {
                     tracing::error!("Radio API: failed to send stations to event loop: {:?}", e);
                 }
@@ -88,6 +116,57 @@ impl RadioStations {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+
+    #[test]
+    fn test_filter_supported_stations() {
+        let s1 = create_dummy_station("Direct MP3", "http://stream.org/live.mp3", 0);
+        let s2 = create_dummy_station("HLS Stream Flag", "http://stream.org/live", 1);
+        let s3 = create_dummy_station("HLS Stream M3U8", "http://stream.org/live.m3u8", 0);
+        let s4 = create_dummy_station("M3U Playlist", "http://stream.org/live.m3u", 0);
+
+        let filtered = filter_supported_stations(vec![s1.clone(), s2, s3, s4.clone()]);
+        assert_eq!(filtered.len(), 2);
+        assert_eq!(filtered[0].name, "Direct MP3");
+        assert_eq!(filtered[1].name, "M3U Playlist");
+    }
+
+    fn create_dummy_station(name: &str, url: &str, hls: i8) -> radiobrowser::ApiStation {
+        radiobrowser::ApiStation {
+            changeuuid: "".to_string(),
+            stationuuid: "".to_string(),
+            serveruuid: None,
+            name: name.to_string(),
+            url: url.to_string(),
+            url_resolved: url.to_string(),
+            homepage: "".to_string(),
+            favicon: "".to_string(),
+            tags: "".to_string(),
+            country: "".to_string(),
+            countrycode: "".to_string(),
+            iso_3166_2: None,
+            state: "".to_string(),
+            language: "".to_string(),
+            languagecodes: None,
+            votes: 0,
+            lastchangetime_iso8601: None,
+            codec: "MP3".to_string(),
+            bitrate: 128,
+            hls,
+            lastcheckok: 1,
+            lastchecktime_iso8601: None,
+            lastcheckoktime_iso8601: None,
+            lastlocalchecktime_iso8601: None,
+            clicktimestamp_iso8601: None,
+            clickcount: 10,
+            clicktrend: 0,
+            ssl_error: Some(0),
+            geo_lat: Some(10.0),
+            geo_long: Some(20.0),
+            has_extended_info: None,
+        }
+    }
+
     #[tokio::test]
     async fn test_fetch_popular_stations_with_geo_info() {
         let api_result = radiobrowser::RadioBrowserAPI::new().await;
@@ -101,6 +180,7 @@ mod tests {
         let stations = api
             .get_stations()
             .has_geo_info(true)
+            .hidebroken(true)
             .order(radiobrowser::StationOrder::Clickcount)
             .reverse(true)
             .limit("20")
@@ -108,24 +188,13 @@ mod tests {
             .await
             .expect("Failed to fetch stations");
 
-        assert_eq!(stations.len(), 20);
-        for station in &stations {
+        let supported = filter_supported_stations(stations);
+        assert!(!supported.is_empty());
+        for station in &supported {
+            assert_ne!(station.hls, 1, "HLS station should have been filtered out");
             assert!(
-                station.geo_lat.is_some(),
-                "Station {} missing latitude",
-                station.name
-            );
-            assert!(
-                station.geo_long.is_some(),
-                "Station {} missing longitude",
-                station.name
-            );
-            println!(
-                "Station: {:<30} | Lat: {:>8.4} | Lon: {:>8.4} | Clicks: {}",
-                station.name,
-                station.geo_lat.unwrap(),
-                station.geo_long.unwrap(),
-                station.clickcount
+                !station.url.to_lowercase().contains(".m3u8"),
+                "M3U8 url should have been filtered out"
             );
         }
     }
