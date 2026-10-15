@@ -88,7 +88,7 @@ impl Default for Camera {
 
 impl Camera {
     pub const SPHERE_RADIUS: f32 = 1.0;
-    pub const MIN_ALTITUDE: f32 = 0.18; // Keep camera safely outside sphere and above near clip plane
+    pub const MIN_ALTITUDE: f32 = 0.12; // Keep camera safely outside sphere and above near clip plane
     pub const MAX_DISTANCE: f32 = 20.0;
 
     pub fn new(position: glam::Vec3, target: glam::Vec3, up: glam::Vec3, fov: f32) -> Self {

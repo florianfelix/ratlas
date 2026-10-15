@@ -4,9 +4,12 @@ use std::path::Path;
 use std::sync::Arc;
 use wgpu::util::DeviceExt;
 
+pub mod effector;
 mod load_obj;
 pub mod material;
 pub mod mesh;
+
+pub use effector::Effector;
 pub use load_obj::load_mesh_from_obj;
 
 use crate::app::app_state::canvas_renderer::CanvasRenderer;
@@ -26,6 +29,8 @@ pub struct RenderObject {
     pub position: glam::Vec3,
     pub rotation: glam::Quat,
     pub scale: glam::Vec3,
+    pub base_scale: glam::Vec3, // Base scale before effector modulation
+    pub color_tint: glam::Vec4, // (r, g, b, a) color tint multiplier
 
     pub transform_buffer: wgpu::Buffer,
     pub transform_bind_group: wgpu::BindGroup,
@@ -39,6 +44,7 @@ pub struct RenderObject {
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct TransformUniform {
     pub model_matrix: [[f32; 4]; 4],
+    pub color_tint: [f32; 4],
 }
 
 impl RenderObject {
@@ -53,6 +59,7 @@ impl RenderObject {
             label: Some("Object Transform Buffer"),
             contents: bytemuck::cast_slice(&[TransformUniform {
                 model_matrix: glam::Mat4::IDENTITY.to_cols_array_2d(),
+                color_tint: glam::Vec4::ONE.to_array(),
             }]),
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
         });
@@ -75,6 +82,8 @@ impl RenderObject {
             position: glam::Vec3::ZERO,
             rotation: glam::Quat::IDENTITY,
             scale: glam::Vec3::ONE,
+            base_scale: glam::Vec3::ONE,
+            color_tint: glam::Vec4::ONE,
             transform_buffer,
             transform_bind_group,
             device,
@@ -129,6 +138,7 @@ impl RenderObject {
                 label: Some(&format!("{} Instance Transform Buffer", self.name)),
                 contents: bytemuck::cast_slice(&[TransformUniform {
                     model_matrix: self.local_matrix().to_cols_array_2d(),
+                    color_tint: self.color_tint.to_array(),
                 }]),
                 usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
             });
@@ -151,6 +161,8 @@ impl RenderObject {
             position: self.position,
             rotation: self.rotation,
             scale: self.scale,
+            base_scale: self.base_scale,
+            color_tint: self.color_tint,
             transform_buffer,
             transform_bind_group,
             device: self.device.clone(),
@@ -182,6 +194,12 @@ impl RenderObject {
         self.position = position;
         self.rotation = rotation;
         self.scale = scale;
+        self.base_scale = scale;
+        self
+    }
+
+    pub fn with_color_tint(mut self, tint: glam::Vec4) -> Self {
+        self.color_tint = tint;
         self
     }
 
@@ -208,6 +226,7 @@ impl RenderObject {
     pub fn update_transform(&self, queue: &wgpu::Queue, mvp: glam::Mat4) {
         let uniform = TransformUniform {
             model_matrix: mvp.to_cols_array_2d(),
+            color_tint: self.color_tint.to_array(),
         };
         queue.write_buffer(&self.transform_buffer, 0, bytemuck::cast_slice(&[uniform]));
     }

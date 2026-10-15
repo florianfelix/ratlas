@@ -10,7 +10,7 @@ use winit::{
 
 use crate::{
     app::{
-        app_state::{AppState, canvas_renderer::CanvasRenderer, gpu::Gpu},
+        app_state::{AppState, Camera, canvas_renderer::CanvasRenderer, gpu::Gpu},
         ui::IcedUi,
     },
     data::RenderObject,
@@ -188,7 +188,7 @@ impl ApplicationHandler<ProxyMessage> for Ratlas {
             window.request_redraw();
         }
 
-        // Camera orbit, hover, and selection interaction on viewport mouse events
+        // Camera orbit, hover, selection, and effector interaction on viewport mouse events
         match &window_event {
             WindowEvent::MouseInput {
                 button: MouseButton::Left,
@@ -211,7 +211,7 @@ impl ApplicationHandler<ProxyMessage> for Ratlas {
                         let dist_sq = dx * dx + dy * dy;
 
                         if dist_sq < 25.0 {
-                            // Less than 5px movement
+                            // Less than 5px movement: process click
                             let physical_size = window.inner_size();
                             let ray = state.camera.screen_to_ray(
                                 release_pos,
@@ -231,6 +231,16 @@ impl ApplicationHandler<ProxyMessage> for Ratlas {
             }
             WindowEvent::CursorMoved { position, .. } => {
                 let current_pos = (position.x, position.y);
+                let physical_size = window.inner_size();
+                let ray = state
+                    .camera
+                    .screen_to_ray(current_pos, (physical_size.width, physical_size.height));
+
+                // Update 3D point on globe under cursor for mouse lens effector
+                state.mouse_globe_pos = ray
+                    .intersect_sphere(glam::Vec3::ZERO, Camera::SPHERE_RADIUS)
+                    .map(|t| ray.origin + ray.direction * t);
+
                 if *is_mouse_pressed {
                     if let Some((prev_x, prev_y)) = *last_mouse_pos {
                         let delta_x = (current_pos.0 - prev_x) as f32;
@@ -242,14 +252,11 @@ impl ApplicationHandler<ProxyMessage> for Ratlas {
                     }
                 } else {
                     // Hover detection when mouse is moving without dragging
-                    let physical_size = window.inner_size();
-                    let ray = state
-                        .camera
-                        .screen_to_ray(current_pos, (physical_size.width, physical_size.height));
                     let hovered_uuid = state.pick_station(&ray).map(|s| s.stationuuid.clone());
-                    if state.set_hovered_station(hovered_uuid) {
-                        window.request_redraw();
-                    }
+                    state.set_hovered_station(hovered_uuid);
+                    // Mouse lens effector follows cursor across globe surface
+                    state.apply_effectors();
+                    window.request_redraw();
                 }
                 *last_mouse_pos = Some(current_pos);
             }
@@ -265,10 +272,11 @@ impl ApplicationHandler<ProxyMessage> for Ratlas {
                 *is_mouse_pressed = false;
                 *last_mouse_pos = None;
                 *mouse_press_pos = None;
+                state.mouse_globe_pos = None;
                 state.camera.stop_drag();
-                if state.set_hovered_station(None) {
-                    window.request_redraw();
-                }
+                state.set_hovered_station(None);
+                state.apply_effectors();
+                window.request_redraw();
             }
             _ => {}
         }
@@ -284,6 +292,9 @@ impl ApplicationHandler<ProxyMessage> for Ratlas {
                 if state.camera.update() {
                     window.request_redraw();
                 }
+
+                // Apply dynamic effectors based on current camera and mouse positions
+                state.apply_effectors();
 
                 // Sync hovered / selected station details to UI overlay state
                 ui.state.hovered_station_name = state

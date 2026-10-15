@@ -1,6 +1,9 @@
 use std::collections::HashMap;
 
-use crate::{app::ui::Message, data::RenderObject};
+use crate::{
+    app::ui::Message,
+    data::{Effector, RenderObject, effector::EffectorKind},
+};
 
 pub mod camera;
 pub mod canvas_renderer;
@@ -15,10 +18,21 @@ pub struct AppState {
     pub radio_stations: Vec<radiobrowser::ApiStation>,
     pub hovered_station: Option<String>,  // stationuuid
     pub selected_station: Option<String>, // stationuuid
+    pub mouse_globe_pos: Option<glam::Vec3>,
+    pub effectors: Vec<Effector>,
 }
 
 impl Default for AppState {
     fn default() -> Self {
+        let effectors = vec![
+            // 1. Camera distance proximity effector: scales markers down smoothly when zoomed in close
+            // so dense clusters separate and don't overlap, while remaining visible when zoomed out.
+            Effector::new_camera_proximity(0.25, 2.2, 0.15, 1.0),
+            // 2. Mouse globe lens effector: magnifies markers under/around the cursor with an S-curve
+            // and gives a subtle glowing tint.
+            Effector::new_mouse_lens(0.02, 1.05, Some(glam::Vec4::new(0.2, 0.35, 0.5, 0.0))),
+        ];
+
         Self {
             world: World::new(),
             objects: HashMap::new(),
@@ -26,6 +40,8 @@ impl Default for AppState {
             radio_stations: Vec::new(),
             hovered_station: None,
             selected_station: None,
+            mouse_globe_pos: None,
+            effectors,
         }
     }
 }
@@ -89,39 +105,100 @@ impl AppState {
         // 4. Add new markers to world
         self.world.add_objects(new_markers);
 
-        // 5. Re-apply any active hover or selection highlights
-        self.update_marker_scales();
+        // 5. Apply effectors (camera proximity, mouse lens, hover/selection)
+        self.apply_effectors();
     }
 
-    /// Casts a ray into the scene to pick a station marker, taking Earth occlusion into account.
-    pub fn pick_station(&self, ray: &Ray) -> Option<&radiobrowser::ApiStation> {
-        // Distance to the front surface of the Earth
-        let earth_dist = ray.intersect_sphere(glam::Vec3::ZERO, Camera::SPHERE_RADIUS);
+    /// Evaluates all active effectors and updates marker scales and color tints
+    pub fn apply_effectors(&mut self) {
+        // Sync camera effector position with camera
+        if let Some(cam_eff) = self
+            .effectors
+            .iter_mut()
+            .find(|e| e.name == "CameraProximityEffector")
+        {
+            cam_eff.position = self.camera.position;
+        }
 
-        let mut closest_hit: Option<(f32, &String)> = None;
+        // Sync mouse lens effector position with mouse globe hit point
+        if let Some(mouse_eff) = self
+            .effectors
+            .iter_mut()
+            .find(|e| e.name == "MouseGlobeLens")
+        {
+            if let Some(globe_pos) = self.mouse_globe_pos {
+                mouse_eff.enabled = true;
+                mouse_eff.position = globe_pos;
+            } else {
+                mouse_eff.enabled = false;
+            }
+        }
 
-        for obj in self.world.get_by_tag("station_marker") {
-            // The marker pin head is located along the object's local +Y axis
-            let pin_head_center = obj.position + obj.rotation * (glam::Vec3::Y * 0.035);
-            let hit_radius = 0.045_f32; // Generous hit radius for smooth hover/selection
+        for obj in &mut self.world.objects {
+            if obj.tag == "station_marker" {
+                let mut current_scale = obj.base_scale;
+                let mut current_tint = glam::Vec4::ONE;
 
-            if let Some(t) = ray.intersect_sphere(pin_head_center, hit_radius) {
-                // If Earth is closer than the marker, the marker is occluded on the far side
-                if let Some(t_earth) = earth_dist {
-                    if t > t_earth {
-                        continue;
+                // 1. Evaluate effectors
+                for effector in &self.effectors {
+                    let (scale_mult, tint_opt) = effector.evaluate(obj.position);
+                    current_scale *= scale_mult;
+                    if let Some(t) = tint_opt {
+                        current_tint += t;
                     }
                 }
 
-                if closest_hit.as_ref().map_or(true, |(min_t, _)| t < *min_t) {
+                // 2. Apply hover and selection highlights on top
+                if obj.id.as_ref() == self.hovered_station.as_ref() {
+                    current_scale *= 1.25;
+                    current_tint = current_tint * glam::Vec4::new(0.7, 1.3, 1.5, 1.0);
+                } else if obj.id.as_ref() == self.selected_station.as_ref() {
+                    current_scale *= 1.15;
+                    current_tint = current_tint * glam::Vec4::new(1.3, 1.1, 0.4, 1.0);
+                }
+
+                obj.scale = current_scale;
+                obj.color_tint = current_tint;
+            }
+        }
+    }
+
+    /// Picks a station marker under the mouse lens or cursor.
+    /// Finds the closest marker to the cursor hit point on the globe within the mouse lens sphere,
+    /// ensuring deterministic, stable hover/selection that visually matches the lens magnification.
+    pub fn pick_station(&self, ray: &Ray) -> Option<&radiobrowser::ApiStation> {
+        // Distance to the front surface of the Earth
+        let earth_dist = ray.intersect_sphere(glam::Vec3::ZERO, Camera::SPHERE_RADIUS)?;
+        let globe_hit = ray.origin + ray.direction * earth_dist;
+
+        // Radius within which markers are eligible for hover/selection,
+        // dynamically matching the active mouse lens radius if configured.
+        let lens_radius = self
+            .effectors
+            .iter()
+            .find_map(|e| {
+                if let EffectorKind::SphericalLens { radius, .. } = &e.kind {
+                    Some(*radius)
+                } else {
+                    None
+                }
+            })
+            .unwrap_or(0.045);
+
+        let mut closest: Option<(f32, &String)> = None;
+
+        for obj in self.world.get_by_tag("station_marker") {
+            let dist = (obj.position - globe_hit).length();
+            if dist <= lens_radius {
+                if closest.as_ref().map_or(true, |(min_d, _)| dist < *min_d) {
                     if let Some(id) = &obj.id {
-                        closest_hit = Some((t, id));
+                        closest = Some((dist, id));
                     }
                 }
             }
         }
 
-        closest_hit.and_then(|(_, id)| self.find_station(id))
+        closest.and_then(|(_, id)| self.find_station(id))
     }
 
     /// Looks up a station by UUID
@@ -129,39 +206,26 @@ impl AppState {
         self.radio_stations.iter().find(|s| s.stationuuid == uuid)
     }
 
-    /// Updates hover state and dynamically scales the hovered/selected markers for visual pop.
+    /// Updates hover state and triggers effector updates.
     /// Returns true if the hover state changed.
     pub fn set_hovered_station(&mut self, uuid: Option<String>) -> bool {
         if self.hovered_station == uuid {
             return false;
         }
         self.hovered_station = uuid;
-        self.update_marker_scales();
+        self.apply_effectors();
         true
     }
 
-    /// Sets the currently selected station and updates marker visual scales.
+    /// Sets the currently selected station and triggers effector updates.
+    /// Returns true if the selected state changed.
     pub fn set_selected_station(&mut self, uuid: Option<String>) -> bool {
         if self.selected_station == uuid {
             return false;
         }
         self.selected_station = uuid;
-        self.update_marker_scales();
+        self.apply_effectors();
         true
-    }
-
-    fn update_marker_scales(&mut self) {
-        for obj in &mut self.world.objects {
-            if obj.tag == "station_marker" {
-                if obj.id.as_ref() == self.hovered_station.as_ref() {
-                    obj.scale = glam::Vec3::splat(0.085); // Enlarged on hover
-                } else if obj.id.as_ref() == self.selected_station.as_ref() {
-                    obj.scale = glam::Vec3::splat(0.075); // Highlighted on select
-                } else {
-                    obj.scale = glam::Vec3::splat(0.060); // Default scale
-                }
-            }
-        }
     }
 }
 
@@ -258,5 +322,47 @@ mod tests {
             .intersect_sphere(glam::Vec3::new(0.0, 0.0, -1.05), 0.05)
             .unwrap();
         assert!(back_marker_t > earth_t);
+    }
+
+    #[test]
+    fn test_pick_station_closest_inside_mouse_lens_math() {
+        // Ray cast from (0, 0, 3) pointing along -Z towards the Earth at (0, 0, 0)
+        let ray = Ray::new(
+            glam::Vec3::new(0.0, 0.0, 3.0),
+            glam::Vec3::new(0.0, 0.0, -1.0),
+        );
+        let earth_t = ray
+            .intersect_sphere(glam::Vec3::ZERO, Camera::SPHERE_RADIUS)
+            .unwrap();
+        let globe_hit = ray.origin + ray.direction * earth_t;
+
+        // Lens radius matching user's lowered radius
+        let lens_radius = 0.02_f32;
+
+        let marker_1_pos = glam::Vec3::new(0.005, 0.0, 1.002); // Distance ~ 0.0054 <= 0.02 (inside lens, very close)
+        let marker_2_pos = glam::Vec3::new(0.015, 0.0, 1.002); // Distance ~ 0.0151 <= 0.02 (inside lens, further)
+        let marker_3_pos = glam::Vec3::new(0.050, 0.0, 1.002); // Distance ~ 0.0500 > 0.02 (outside lens)
+
+        let d1 = (marker_1_pos - globe_hit).length();
+        let d2 = (marker_2_pos - globe_hit).length();
+        let d3 = (marker_3_pos - globe_hit).length();
+
+        assert!(d1 <= lens_radius);
+        assert!(d2 <= lens_radius);
+        assert!(d3 > lens_radius);
+
+        // Marker 1 is closest inside lens
+        assert!(d1 < d2);
+
+        // Simulated pick selection
+        let candidates = vec![(d1, "uuid-1"), (d2, "uuid-2"), (d3, "uuid-3")];
+
+        let picked = candidates
+            .into_iter()
+            .filter(|(d, _)| *d <= lens_radius)
+            .min_by(|a, b| a.0.partial_cmp(&b.0).unwrap())
+            .map(|(_, id)| id);
+
+        assert_eq!(picked, Some("uuid-1"));
     }
 }

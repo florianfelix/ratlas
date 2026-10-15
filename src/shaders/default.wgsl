@@ -1,5 +1,6 @@
 struct TransformUniform {
     model_matrix: mat4x4<f32>,
+    color_tint: vec4<f32>,
 };
 
 @group(0) @binding(0)
@@ -44,7 +45,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let ambient = 0.35;
     let lighting = ambient + diff * 0.65;
 
-    let final_rgb = tex_color.rgb * lighting;
+    let final_rgb = tex_color.rgb * transform.color_tint.rgb * lighting;
 
-    return vec4<f32>(final_rgb, 1.0);
+    return vec4<f32>(final_rgb, tex_color.a * transform.color_tint.a);
 }
