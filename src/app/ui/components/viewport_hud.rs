@@ -7,7 +7,8 @@ pub fn viewport_hud<'a>(state: &'a UiState) -> Element<'a> {
         text("Viewport").size(12),
         text("LMB: Orbit | Click: Select | Scroll: Zoom").size(11),
     ]
-    .spacing(4);
+    .spacing(4)
+    .max_width(240.0);
 
     if let Some(hovered) = &state.hovered_station_name {
         content = content.push(container(text(format!("Hovered: {hovered}")).size(12)).padding(4));
