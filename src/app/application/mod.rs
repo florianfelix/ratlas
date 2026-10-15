@@ -105,6 +105,13 @@ impl ApplicationHandler<ProxyMessage> for Ratlas {
             );
             state.world.add_object(default_sphere);
 
+            let marker = RenderObject::from_files(
+                &canvas_renderer,
+                "assets/marker.pbj",
+                "assets/marker.jpg",
+            );
+            state.objects.insert(marker.name.clone(), marker);
+
             window.request_redraw();
 
             *self = Self::Running {
