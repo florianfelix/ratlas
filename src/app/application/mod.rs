@@ -146,7 +146,7 @@ impl ApplicationHandler<ProxyMessage> for Ratlas {
                     );
                 }
                 if let Self::Running { state, window, .. } = self {
-                    state.radio_stations = stations;
+                    state.update_station_markers(stations);
                     window.request_redraw();
                 }
             }

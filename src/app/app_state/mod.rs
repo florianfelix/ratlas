@@ -38,6 +38,13 @@ impl AppState {
             }
         }
     }
+    pub fn update_station_markers(&mut self, stations: Vec<radiobrowser::ApiStation>) {
+        self.radio_stations = stations;
+        // remove old station markers from world
+        // create new station markers from stations
+        // set transform for each to sit on sphere with radius 1.0 with y pointing away from center
+        // add new markers to world
+    }
 }
 
 pub struct World {
