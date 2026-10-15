@@ -1,5 +1,9 @@
 #![allow(clippy::derivable_impls)]
-#![allow(clippy::single_match, clippy::collapsible_if)]
+#![allow(
+    clippy::single_match,
+    clippy::collapsible_if,
+    clippy::unnecessary_map_or
+)]
 
 use tracing::info;
 

@@ -13,6 +13,8 @@ pub use message::{Message, handle_message};
 #[derive(Debug, Default)]
 pub struct UiState {
     pub counter: i32,
+    pub hovered_station_name: Option<String>,
+    pub selected_station: Option<radiobrowser::ApiStation>,
 }
 
 pub type Element<'a> = iced_wgpu::core::Element<'a, Message, iced::Theme, iced_wgpu::Renderer>;

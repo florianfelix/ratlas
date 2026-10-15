@@ -1,3 +1,42 @@
+#[derive(Debug, Clone, Copy)]
+pub struct Ray {
+    pub origin: glam::Vec3,
+    pub direction: glam::Vec3,
+}
+
+impl Ray {
+    pub fn new(origin: glam::Vec3, direction: glam::Vec3) -> Self {
+        Self {
+            origin,
+            direction: direction.normalize(),
+        }
+    }
+
+    /// Tests intersection with a sphere at `center` with `radius`.
+    /// Returns the closest positive distance `t` along the ray, or `None` if no intersection.
+    pub fn intersect_sphere(&self, center: glam::Vec3, radius: f32) -> Option<f32> {
+        let oc = self.origin - center;
+        let b = oc.dot(self.direction);
+        let c = oc.dot(oc) - radius * radius;
+        let discriminant = b * b - c;
+        if discriminant < 0.0 {
+            return None;
+        }
+
+        let sqrt_disc = discriminant.sqrt();
+        let t1 = -b - sqrt_disc;
+        let t2 = -b + sqrt_disc;
+
+        if t1 > 0.0 {
+            Some(t1)
+        } else if t2 > 0.0 {
+            Some(t2)
+        } else {
+            None
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct Camera {
     pub position: glam::Vec3,
@@ -88,6 +127,30 @@ impl Camera {
     /// Computes the WebGPU perspective projection matrix
     pub fn projection_matrix(&self, aspect_ratio: f32) -> glam::Mat4 {
         glam::camera::rh::proj::directx::perspective(self.fov, aspect_ratio.max(0.1), 0.1, 100.0)
+    }
+
+    /// Converts screen pixel coordinates to a normalized world-space Ray
+    pub fn screen_to_ray(&self, screen_pos: (f64, f64), screen_size: (u32, u32)) -> Ray {
+        let width = screen_size.0.max(1) as f32;
+        let height = screen_size.1.max(1) as f32;
+        let aspect = width / height;
+
+        // Convert screen coordinates [0..w, 0..h] to NDC [-1..1, 1..-1]
+        let ndc_x = (2.0 * screen_pos.0 as f32 / width) - 1.0;
+        let ndc_y = 1.0 - (2.0 * screen_pos.1 as f32 / height);
+
+        let inv_proj = self.projection_matrix(aspect).inverse();
+        let inv_view = self.view_matrix().inverse();
+        let inv_vp = inv_view * inv_proj;
+
+        // Unproject near plane (z = 0.0) and far plane (z = 1.0) in WebGPU clip space
+        let p_near_h = inv_vp * glam::Vec4::new(ndc_x, ndc_y, 0.0, 1.0);
+        let p_far_h = inv_vp * glam::Vec4::new(ndc_x, ndc_y, 1.0, 1.0);
+
+        let p_near = p_near_h.truncate() / p_near_h.w;
+        let p_far = p_far_h.truncate() / p_far_h.w;
+
+        Ray::new(p_near, p_far - p_near)
     }
 
     /// Rotates the camera target around the center using distance-scaled sensitivity and momentum.
@@ -184,6 +247,41 @@ mod tests {
     use super::*;
 
     #[test]
+    fn test_ray_sphere_intersection() {
+        let ray = Ray::new(
+            glam::Vec3::new(0.0, 0.0, 3.0),
+            glam::Vec3::new(0.0, 0.0, -1.0),
+        );
+        let hit = ray.intersect_sphere(glam::Vec3::ZERO, 1.0);
+        assert!(hit.is_some());
+        let t = hit.unwrap();
+        assert!((t - 2.0).abs() < 1e-4);
+
+        // Ray pointing away from sphere
+        let ray_away = Ray::new(
+            glam::Vec3::new(0.0, 0.0, 3.0),
+            glam::Vec3::new(0.0, 0.0, 1.0),
+        );
+        assert!(ray_away.intersect_sphere(glam::Vec3::ZERO, 1.0).is_none());
+
+        // Ray missing sphere
+        let ray_miss = Ray::new(
+            glam::Vec3::new(0.0, 5.0, 3.0),
+            glam::Vec3::new(0.0, 0.0, -1.0),
+        );
+        assert!(ray_miss.intersect_sphere(glam::Vec3::ZERO, 1.0).is_none());
+    }
+
+    #[test]
+    fn test_screen_to_ray_center() {
+        let cam = Camera::default();
+        let ray = cam.screen_to_ray((400.0, 300.0), (800, 600));
+        // Center ray should point towards target (0, 0, 0)
+        let dir_to_target = (cam.target - cam.position).normalize();
+        assert!(ray.direction.dot(dir_to_target) > 0.99);
+    }
+
+    #[test]
     fn test_zoom_step_proportional_to_distance() {
         let mut cam_far = Camera::new(
             glam::Vec3::new(0.0, 0.0, 5.0),
@@ -204,14 +302,12 @@ mod tests {
         let delta_far = 5.0 - cam_far.target_radius;
         let delta_near = 1.2 - cam_near.target_radius;
 
-        // Step size when far away should be strictly greater than step size when close to the sphere
         assert!(delta_far > delta_near);
     }
 
     #[test]
     fn test_zoom_capped_outside_sphere() {
         let mut cam = Camera::default();
-        // Zoom in aggressively
         for _ in 0..100 {
             cam.zoom(5.0);
         }
@@ -221,7 +317,6 @@ mod tests {
             "Camera target radius penetrated inside sphere surface!"
         );
 
-        // Step animation to completion
         for _ in 0..100 {
             cam.update();
         }
@@ -254,7 +349,6 @@ mod tests {
         let delta_theta_far = (cam_far.target_theta - cam_far.theta).abs();
         let delta_theta_near = (cam_near.target_theta - cam_near.theta).abs();
 
-        // Rotation sensitivity near surface must be finer (smaller angle per mouse pixel) than far away
         assert!(delta_theta_near < delta_theta_far);
     }
 }

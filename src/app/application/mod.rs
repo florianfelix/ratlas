@@ -56,6 +56,7 @@ pub enum Ratlas {
         ui: IcedUi,
         canvas_renderer: CanvasRenderer,
         is_mouse_pressed: bool,
+        mouse_press_pos: Option<(f64, f64)>,
         last_mouse_pos: Option<(f64, f64)>,
     },
 }
@@ -126,6 +127,7 @@ impl ApplicationHandler<ProxyMessage> for Ratlas {
                 ui,
                 canvas_renderer,
                 is_mouse_pressed: false,
+                mouse_press_pos: None,
                 last_mouse_pos: None,
             };
         }
@@ -174,6 +176,7 @@ impl ApplicationHandler<ProxyMessage> for Ratlas {
             ui,
             canvas_renderer,
             is_mouse_pressed,
+            mouse_press_pos,
             last_mouse_pos,
             ..
         } = self
@@ -185,17 +188,44 @@ impl ApplicationHandler<ProxyMessage> for Ratlas {
             window.request_redraw();
         }
 
-        // Camera orbit and zoom interaction on viewport mouse events
+        // Camera orbit, hover, and selection interaction on viewport mouse events
         match &window_event {
             WindowEvent::MouseInput {
                 button: MouseButton::Left,
                 state: button_state,
                 ..
             } => {
-                *is_mouse_pressed = *button_state == ElementState::Pressed;
-                if !*is_mouse_pressed {
-                    *last_mouse_pos = None;
+                let pressed = *button_state == ElementState::Pressed;
+                *is_mouse_pressed = pressed;
+                if pressed {
+                    *mouse_press_pos = *last_mouse_pos;
+                } else {
                     state.camera.stop_drag();
+
+                    // If released with minimal mouse travel, treat as a click / selection
+                    if let (Some(press_pos), Some(release_pos)) =
+                        (*mouse_press_pos, *last_mouse_pos)
+                    {
+                        let dx = (release_pos.0 - press_pos.0) as f32;
+                        let dy = (release_pos.1 - press_pos.1) as f32;
+                        let dist_sq = dx * dx + dy * dy;
+
+                        if dist_sq < 25.0 {
+                            // Less than 5px movement
+                            let physical_size = window.inner_size();
+                            let ray = state.camera.screen_to_ray(
+                                release_pos,
+                                (physical_size.width, physical_size.height),
+                            );
+                            let clicked_uuid =
+                                state.pick_station(&ray).map(|s| s.stationuuid.clone());
+                            state.set_selected_station(clicked_uuid);
+                            window.request_redraw();
+                        }
+                    }
+
+                    *mouse_press_pos = None;
+                    *last_mouse_pos = None;
                     window.request_redraw();
                 }
             }
@@ -208,6 +238,16 @@ impl ApplicationHandler<ProxyMessage> for Ratlas {
 
                         // Rotate camera around target with distance-scaled sensitivity and momentum
                         state.camera.rotate_around_target(delta_x, delta_y);
+                        window.request_redraw();
+                    }
+                } else {
+                    // Hover detection when mouse is moving without dragging
+                    let physical_size = window.inner_size();
+                    let ray = state
+                        .camera
+                        .screen_to_ray(current_pos, (physical_size.width, physical_size.height));
+                    let hovered_uuid = state.pick_station(&ray).map(|s| s.stationuuid.clone());
+                    if state.set_hovered_station(hovered_uuid) {
                         window.request_redraw();
                     }
                 }
@@ -224,7 +264,11 @@ impl ApplicationHandler<ProxyMessage> for Ratlas {
             WindowEvent::CursorLeft { .. } => {
                 *is_mouse_pressed = false;
                 *last_mouse_pos = None;
+                *mouse_press_pos = None;
                 state.camera.stop_drag();
+                if state.set_hovered_station(None) {
+                    window.request_redraw();
+                }
             }
             _ => {}
         }
@@ -240,6 +284,18 @@ impl ApplicationHandler<ProxyMessage> for Ratlas {
                 if state.camera.update() {
                     window.request_redraw();
                 }
+
+                // Sync hovered / selected station details to UI overlay state
+                ui.state.hovered_station_name = state
+                    .hovered_station
+                    .as_ref()
+                    .and_then(|id| state.find_station(id))
+                    .map(|s| s.name.clone());
+                ui.state.selected_station = state
+                    .selected_station
+                    .as_ref()
+                    .and_then(|id| state.find_station(id))
+                    .cloned();
 
                 // 1. Update UI overlay and dispatch messages directly to AppState
                 let ui_result = ui.update(window);
