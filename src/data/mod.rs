@@ -17,6 +17,8 @@ use crate::data::mesh::Mesh;
 // Combines geometry mesh, visual material, and a dedicated Uniform Buffer for spatial transform.
 pub struct RenderObject {
     pub name: String,
+    pub tag: String,
+    pub id: Option<String>,
     pub mesh: Arc<Mesh>,
     pub material: Arc<Material>,
 
@@ -27,6 +29,10 @@ pub struct RenderObject {
 
     pub transform_buffer: wgpu::Buffer,
     pub transform_bind_group: wgpu::BindGroup,
+
+    // GPU device and bind group layout retained for fast instancing
+    pub device: Arc<wgpu::Device>,
+    pub transform_layout: Arc<wgpu::BindGroupLayout>,
 }
 
 #[repr(C)]
@@ -38,10 +44,10 @@ pub struct TransformUniform {
 impl RenderObject {
     pub fn new(
         name: impl Into<String>,
-        device: &wgpu::Device,
+        device: Arc<wgpu::Device>,
         mesh: Arc<Mesh>,
         material: Arc<Material>,
-        matrix_bind_group_layout: &wgpu::BindGroupLayout,
+        transform_layout: Arc<wgpu::BindGroupLayout>,
     ) -> Self {
         let transform_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Object Transform Buffer"),
@@ -53,7 +59,7 @@ impl RenderObject {
 
         let transform_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("Object Transform Bind Group"),
-            layout: matrix_bind_group_layout,
+            layout: &transform_layout,
             entries: &[wgpu::BindGroupEntry {
                 binding: 0,
                 resource: transform_buffer.as_entire_binding(),
@@ -62,6 +68,8 @@ impl RenderObject {
 
         Self {
             name: name.into(),
+            tag: String::new(),
+            id: None,
             mesh,
             material,
             position: glam::Vec3::ZERO,
@@ -69,6 +77,8 @@ impl RenderObject {
             scale: glam::Vec3::ONE,
             transform_buffer,
             transform_bind_group,
+            device,
+            transform_layout,
         }
     }
 
@@ -103,11 +113,92 @@ impl RenderObject {
 
         Self::new(
             name,
-            &gpu.device,
+            gpu.device.clone(),
             Arc::new(mesh),
             Arc::new(material),
-            &canvas_renderer.pipelines.transform_layout,
+            canvas_renderer.pipelines.transform_layout.clone(),
         )
+    }
+
+    /// Creates an independent instance sharing mesh, material, and pipeline resources,
+    /// but with its own transform buffer, bind group, and transform properties.
+    pub fn create_instance(&self) -> Self {
+        let transform_buffer = self
+            .device
+            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some(&format!("{} Instance Transform Buffer", self.name)),
+                contents: bytemuck::cast_slice(&[TransformUniform {
+                    model_matrix: self.local_matrix().to_cols_array_2d(),
+                }]),
+                usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            });
+
+        let transform_bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some(&format!("{} Instance Transform Bind Group", self.name)),
+            layout: &self.transform_layout,
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: transform_buffer.as_entire_binding(),
+            }],
+        });
+
+        Self {
+            name: self.name.clone(),
+            tag: self.tag.clone(),
+            id: self.id.clone(),
+            mesh: self.mesh.clone(),
+            material: self.material.clone(),
+            position: self.position,
+            rotation: self.rotation,
+            scale: self.scale,
+            transform_buffer,
+            transform_bind_group,
+            device: self.device.clone(),
+            transform_layout: self.transform_layout.clone(),
+        }
+    }
+
+    pub fn with_tag(mut self, tag: impl Into<String>) -> Self {
+        self.tag = tag.into();
+        self
+    }
+
+    pub fn with_id(mut self, id: impl Into<String>) -> Self {
+        self.id = Some(id.into());
+        self
+    }
+
+    pub fn with_name(mut self, name: impl Into<String>) -> Self {
+        self.name = name.into();
+        self
+    }
+
+    pub fn with_transform(
+        mut self,
+        position: glam::Vec3,
+        rotation: glam::Quat,
+        scale: glam::Vec3,
+    ) -> Self {
+        self.position = position;
+        self.rotation = rotation;
+        self.scale = scale;
+        self
+    }
+
+    /// Computes the position and outward surface normal on a sphere at given latitude and longitude
+    /// (in degrees) with specified radius.
+    /// Coordinates are aligned with the equirectangular earth texture mapping.
+    pub fn sphere_coords(lat_deg: f32, lon_deg: f32, radius: f32) -> (glam::Vec3, glam::Vec3) {
+        let lat_rad = lat_deg.to_radians();
+        let lon_rad = lon_deg.to_radians();
+
+        let x = lat_rad.cos() * lon_rad.cos();
+        let y = lat_rad.sin();
+        let z = -lat_rad.cos() * lon_rad.sin();
+
+        let normal = glam::Vec3::new(x, y, z).normalize();
+        let position = normal * radius;
+        (position, normal)
     }
 
     pub fn local_matrix(&self) -> glam::Mat4 {

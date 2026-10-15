@@ -98,19 +98,22 @@ impl ApplicationHandler<ProxyMessage> for Ratlas {
 
             // Create initial world in AppState and load default sphere object
             let mut state = AppState::default();
-            let default_sphere = RenderObject::from_files(
+            let mut default_sphere = RenderObject::from_files(
                 &canvas_renderer,
                 "assets/sphere.obj",
                 "assets/sphere_diffuse.jpg",
             );
+            default_sphere.tag = "earth".to_string();
             state.world.add_object(default_sphere);
 
-            let marker = RenderObject::from_files(
+            let mut marker = RenderObject::from_files(
                 &canvas_renderer,
-                "assets/marker.pbj",
+                "assets/marker.obj",
                 "assets/marker.jpg",
             );
-            state.objects.insert(marker.name.clone(), marker);
+            marker.name = "marker".to_string();
+            marker.tag = "marker_template".to_string();
+            state.objects.insert("marker".to_string(), marker);
 
             window.request_redraw();
 
