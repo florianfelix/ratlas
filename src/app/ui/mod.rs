@@ -1,7 +1,7 @@
 use std::sync::Arc;
 use winit::window::Window;
 
-use crate::app::app_state::{gpu::Gpu, AppState};
+use crate::app::app_state::{AppState, gpu::Gpu};
 use iced_winit::program::Program;
 
 pub mod components;
@@ -46,6 +46,13 @@ impl iced_winit::program::Program for Ui {
         "Ratlas"
     }
 
+    fn theme(
+        &self,
+        _state: &Self::State,
+        _window: iced_wgpu::core::window::Id,
+    ) -> Option<Self::Theme> {
+        Some(iced::Theme::Dracula)
+    }
     fn settings(&self) -> iced::Settings {
         iced::Settings::default()
     }
@@ -196,11 +203,16 @@ impl IcedUi {
             );
         }
 
+        let theme = self
+            .program
+            .theme(&self.state, self.window_id)
+            .unwrap_or(iced::Theme::Dark);
+
         user_interface.draw(
             &mut self.renderer,
-            &iced::Theme::Dark,
+            &theme,
             &iced_wgpu::core::renderer::Style {
-                text_color: iced::Color::WHITE,
+                text_color: theme.palette().text,
             },
             self.cursor_position,
         );
