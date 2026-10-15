@@ -18,6 +18,10 @@ impl Default for Camera {
 }
 
 impl Camera {
+    pub const SPHERE_RADIUS: f32 = 1.0;
+    pub const MIN_ALTITUDE: f32 = 0.18; // Keep camera safely outside sphere and above near clip plane
+    pub const MAX_DISTANCE: f32 = 20.0;
+
     pub fn new(position: glam::Vec3, target: glam::Vec3, up: glam::Vec3, fov: f32) -> Self {
         Self {
             position,
@@ -74,13 +78,69 @@ impl Camera {
         self.position = self.target + new_offset;
     }
 
-    /// Zoom in / out by scaling the distance to target
+    /// Zoom in / out with step size proportional to altitude above the sphere surface,
+    /// clamped to always remain outside the sphere.
     pub fn zoom(&mut self, delta: f32) {
         let offset = self.position - self.target;
-        let radius = offset.length();
-        let new_radius = (radius - delta).clamp(0.5, 50.0);
-        if radius > 0.001 {
-            self.position = self.target + offset * (new_radius / radius);
+        let current_radius = offset.length();
+        if current_radius < 0.001 {
+            return;
         }
+
+        let min_radius = Self::SPHERE_RADIUS + Self::MIN_ALTITUDE;
+        let max_radius = Self::MAX_DISTANCE;
+
+        // Step size is proportional to altitude above the sphere surface (slower/finer closer in)
+        let altitude = (current_radius - Self::SPHERE_RADIUS).max(0.0);
+        let step = delta * (altitude + 0.15);
+        let new_radius = (current_radius - step).clamp(min_radius, max_radius);
+
+        self.position = self.target + offset * (new_radius / current_radius);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_zoom_step_proportional_to_distance() {
+        let mut cam_far = Camera {
+            position: glam::Vec3::new(0.0, 0.0, 5.0),
+            target: glam::Vec3::ZERO,
+            up: glam::Vec3::Y,
+            fov: 45.0_f32.to_radians(),
+        };
+        let mut cam_near = Camera {
+            position: glam::Vec3::new(0.0, 0.0, 1.2),
+            target: glam::Vec3::ZERO,
+            up: glam::Vec3::Y,
+            fov: 45.0_f32.to_radians(),
+        };
+
+        cam_far.zoom(0.1);
+        cam_near.zoom(0.1);
+
+        let delta_far = 5.0 - (cam_far.position - cam_far.target).length();
+        let delta_near = 1.2 - (cam_near.position - cam_near.target).length();
+
+        // Step size when far away should be strictly greater than step size when close to the sphere
+        assert!(delta_far > delta_near);
+    }
+
+    #[test]
+    fn test_zoom_capped_outside_sphere() {
+        let mut cam = Camera::default();
+        // Zoom in aggressively
+        for _ in 0..100 {
+            cam.zoom(5.0);
+        }
+
+        let dist = (cam.position - cam.target).length();
+        assert!(
+            dist >= Camera::SPHERE_RADIUS + Camera::MIN_ALTITUDE,
+            "Camera distance {dist} penetrated inside sphere surface!"
+        );
+        assert!(dist > Camera::SPHERE_RADIUS);
     }
 }
