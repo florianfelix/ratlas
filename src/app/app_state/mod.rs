@@ -340,7 +340,7 @@ mod tests {
         let marker_2_pos = glam::Vec3::new(0.015, 0.0, 1.002); // Distance ~ 0.0151 <= 0.02 (inside lens, further)
         let marker_3_pos = glam::Vec3::new(0.050, 0.0, 1.002); // Distance ~ 0.0500 > 0.02 (outside lens)
 
-        let candidates = vec![
+        let candidates = [
             ("uuid-1", marker_1_pos),
             ("uuid-2", marker_2_pos),
             ("uuid-3", marker_3_pos),
