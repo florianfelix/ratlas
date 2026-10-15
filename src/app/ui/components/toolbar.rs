@@ -1,6 +1,6 @@
-use iced::widget::{button, container, row, text};
-
+#![allow(unused)]
 use crate::app::ui::{Element, Message, UiState};
+use iced::widget::{button, container, row, text};
 
 pub fn toolbar<'a>(state: &'a UiState) -> Element<'a> {
     let mut content = row![
