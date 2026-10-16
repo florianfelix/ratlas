@@ -210,9 +210,14 @@ pub fn toolbar<'a>(state: &'a UiState) -> Element<'a> {
         .width(Length::Fill);
 
     if let Some(hovered) = &state.hovered_station_name {
-        main_row = main_row
-            .push(container(row![]).width(Length::Fill))
-            .push(container(text(hovered).size(13).align_y(iced::Alignment::Center)).padding(2));
+        main_row = main_row.push(container(row![]).width(Length::Fill)).push(
+            container(
+                text(format!("{:.60}", hovered))
+                    .size(13)
+                    .align_y(iced::Alignment::Center),
+            )
+            .padding(2),
+        );
     }
 
     let content = if !suggestions.is_empty() {
