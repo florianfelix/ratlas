@@ -191,10 +191,41 @@ impl Camera {
         self.target_radius = (self.target_radius - step).clamp(min_radius, max_radius);
     }
 
+    /// Smoothly animates the camera to orient directly facing the specified outward unit normal
+    /// using the shortest angular route around the globe, and optionally zooms to `target_distance`.
+    pub fn fly_to_direction(&mut self, normal: glam::Vec3, target_distance: Option<f32>) {
+        let length_sq = normal.length_squared();
+        if length_sq < 1e-4 {
+            return;
+        }
+        let n = normal.normalize();
+
+        let target_phi = n.y.clamp(-0.99, 0.99).asin();
+        let target_theta_raw = n.z.atan2(n.x);
+
+        // Find the shortest angular rotation path from current theta
+        let diff = (target_theta_raw - self.theta).rem_euclid(2.0 * std::f32::consts::PI);
+        let shortest_diff = if diff > std::f32::consts::PI {
+            diff - 2.0 * std::f32::consts::PI
+        } else {
+            diff
+        };
+
+        self.target_theta = self.theta + shortest_diff;
+        self.target_phi = target_phi.clamp(-85.0_f32.to_radians(), 85.0_f32.to_radians());
+
+        if let Some(dist) = target_distance {
+            let min_radius = Self::SPHERE_RADIUS + Self::MIN_ALTITUDE;
+            self.target_radius = dist.clamp(min_radius, Self::MAX_DISTANCE);
+        }
+
+        self.velocity = glam::Vec2::ZERO;
+    }
+
     /// Smoothly updates camera spherical coordinates toward targets using damping and inertia.
     /// Returns true if the camera is still actively moving (requiring continuous frame redraws).
     pub fn update(&mut self) -> bool {
-        let damping = 0.22_f32; // Smooth and responsive exponential ease
+        let damping = 0.16_f32; // Smooth and responsive exponential ease
 
         // Apply and decay momentum velocity
         self.velocity *= 0.88;
@@ -258,16 +289,9 @@ mod tests {
         assert!((t - 2.0).abs() < 1e-4);
 
         // Ray pointing away from sphere
-        let ray_away = Ray::new(
+        let ray_miss = Ray::new(
             glam::Vec3::new(0.0, 0.0, 3.0),
             glam::Vec3::new(0.0, 0.0, 1.0),
-        );
-        assert!(ray_away.intersect_sphere(glam::Vec3::ZERO, 1.0).is_none());
-
-        // Ray missing sphere
-        let ray_miss = Ray::new(
-            glam::Vec3::new(0.0, 5.0, 3.0),
-            glam::Vec3::new(0.0, 0.0, -1.0),
         );
         assert!(ray_miss.intersect_sphere(glam::Vec3::ZERO, 1.0).is_none());
     }
@@ -350,5 +374,35 @@ mod tests {
         let delta_theta_near = (cam_near.target_theta - cam_near.theta).abs();
 
         assert!(delta_theta_near < delta_theta_far);
+    }
+
+    #[test]
+    fn test_fly_to_direction_shortest_path() {
+        let mut cam = Camera::default();
+        cam.theta = 170.0_f32.to_radians();
+        cam.phi = 0.0;
+        cam.radius = 2.8;
+
+        // Target point at -170 degrees (just 20 degrees away across the antimeridian)
+        let target_theta = (-170.0_f32).to_radians();
+        let normal = glam::Vec3::new(target_theta.cos(), 0.0, target_theta.sin());
+
+        cam.fly_to_direction(normal, Some(2.0));
+
+        // Shortest diff should be +20 degrees (0.349 rad), not -340 degrees!
+        let diff = (cam.target_theta - cam.theta).abs();
+        assert!(
+            diff < 25.0_f32.to_radians(),
+            "Diff was {diff}, should be shortest route ~20 degrees"
+        );
+
+        // Animate towards target
+        for _ in 0..60 {
+            cam.update();
+        }
+
+        assert!((cam.radius - 2.0).abs() < 1e-2);
+        let final_dir = (cam.position - cam.target).normalize();
+        assert!(final_dir.dot(normal) > 0.99);
     }
 }

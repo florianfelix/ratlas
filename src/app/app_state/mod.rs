@@ -181,8 +181,34 @@ impl AppState {
 
     pub fn set_station_filter(&mut self, filter: StationFilter) {
         if self.station_filter != filter {
+            let country_changed = self.station_filter.country_code != filter.country_code;
+            let has_new_country = filter.country_code.is_some();
             self.station_filter = filter;
             self.rebuild_station_markers();
+
+            if country_changed && has_new_country {
+                self.focus_on_country();
+            }
+        }
+    }
+
+    /// Smoothly animates camera rotation around the globe until it is centered
+    /// over the active cluster of station markers.
+    pub fn focus_on_country(&mut self) {
+        let mut sum = glam::Vec3::ZERO;
+        let mut count = 0;
+        for marker in &self.marker_instances {
+            sum += marker.position;
+            count += 1;
+        }
+
+        if count > 0 {
+            let center_normal = (sum / count as f32).normalize();
+            // Smoothly fly camera to face the centroid of the country's station cluster
+            // Gently bring the camera into a comfortable viewing altitude (~2.1 units)
+            let target_dist = self.camera.radius.clamp(1.8, 2.3);
+            self.camera
+                .fly_to_direction(center_normal, Some(target_dist));
         }
     }
 
