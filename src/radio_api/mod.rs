@@ -1,3 +1,4 @@
+use radiobrowser::RadioBrowserAPI;
 use tokio::runtime::Builder;
 use winit::event_loop::EventLoopProxy;
 
@@ -30,20 +31,53 @@ struct RadioStations {
     proxy: EventLoopProxy<ProxyMessage>,
     #[allow(dead_code)]
     stations: Vec<radiobrowser::ApiStation>,
+    api: RadioBrowserAPI,
+}
+
+fn create_api() -> RadioBrowserAPI {
+    pollster::block_on(async {
+        let api_result = radiobrowser::RadioBrowserAPI::new().await;
+
+        match api_result {
+            Ok(api) => api,
+            Err(e) => {
+                tracing::warn!(
+                    "RadioBrowserAPI::new() failed ({:?}), falling back to direct server...",
+                    e
+                );
+
+                match radiobrowser::RadioBrowserAPI::new_from_dns_a("all.api.radio-browser.info")
+                    .await
+                {
+                    Ok(api) => Ok(api),
+                    Err(e) => {
+                        tracing::error!("Failed to initialize RadioBrowserAPI: {:?}", e);
+                        Err(anyhow::anyhow!(
+                            "Failed to initialize RadioBrowserAPI: {:?}",
+                            e
+                        ))
+                    }
+                }
+                .expect("useless without api")
+            }
+        }
+    })
 }
 
 pub fn radio_api_worker(
     rx_radio: crossbeam_channel::Receiver<RadioMessage>,
     proxy: EventLoopProxy<ProxyMessage>,
 ) {
+    let api = create_api();
     let mut radio_stations = RadioStations {
         rx_radio,
         proxy,
         stations: vec![],
+        api,
     };
 
     let runtime = Builder::new_multi_thread()
-        .worker_threads(4)
+        .worker_threads(2)
         .thread_name("radio_api_worker")
         .enable_all()
         .build()
@@ -51,55 +85,35 @@ pub fn radio_api_worker(
     runtime.block_on(radio_stations.run());
 }
 
+type ApiResultStations =
+    Result<Vec<radiobrowser::ApiStation>, Box<dyn std::error::Error + 'static>>;
+type ApiResultTags = Result<Vec<radiobrowser::ApiTag>, Box<dyn std::error::Error + 'static>>;
+
 impl RadioStations {
     async fn run(&mut self) {
         while let Ok(msg) = self.rx_radio.recv() {
             match msg {
                 RadioMessage::GetPopular => self.get_popular().await,
+                RadioMessage::GetTags => self.get_tags().await,
             }
         }
     }
 
-    async fn get_popular(&mut self) {
-        tracing::info!("Radio API: fetching popular stations with geolocation...");
-        let api_result = radiobrowser::RadioBrowserAPI::new().await;
-        let api = match api_result {
-            Ok(api) => api,
+    fn send_station_result(&self, api_result: ApiResultStations) {
+        match api_result {
             Err(e) => {
-                tracing::warn!(
-                    "RadioBrowserAPI::new() failed ({:?}), falling back to direct server...",
-                    e
-                );
-                match radiobrowser::RadioBrowserAPI::new_from_dns_a("all.api.radio-browser.info")
-                    .await
-                {
-                    Ok(api) => api,
-                    Err(e) => {
-                        tracing::error!("Failed to initialize RadioBrowserAPI: {:?}", e);
-                        return;
-                    }
-                }
+                tracing::error!("Radio API: failed to query stations: {:?}", e);
             }
-        };
-
-        match api
-            .get_stations()
-            .has_geo_info(true)
-            .hidebroken(true)
-            .order(radiobrowser::StationOrder::Clickcount)
-            .reverse(true)
-            .send()
-            .await
-        {
             Ok(stations) => {
                 let total = stations.len();
                 let supported = filter_supported_stations(stations);
+
                 tracing::info!(
                     "Radio API: retrieved {} stations ({} playable direct streams after filtering HLS)",
                     total,
                     supported.len()
                 );
-                self.stations = supported.clone();
+
                 if let Err(e) = self
                     .proxy
                     .send_event(ProxyMessage::RadioStationsLoaded(supported))
@@ -107,10 +121,44 @@ impl RadioStations {
                     tracing::error!("Radio API: failed to send stations to event loop: {:?}", e);
                 }
             }
+        }
+    }
+
+    fn send_tag_result(&self, api_result: ApiResultTags) {
+        match api_result {
             Err(e) => {
                 tracing::error!("Radio API: failed to query stations: {:?}", e);
             }
+            Ok(tags) => {
+                tracing::info!("Radio API: retrieved {} tags", tags.len());
+                if let Err(e) = self.proxy.send_event(ProxyMessage::RadioStationTags(tags)) {
+                    tracing::error!("Radio API: failed to send ApiTags to event loop: {:?}", e);
+                }
+            }
         }
+    }
+
+    #[tracing::instrument(skip_all)]
+    async fn get_popular(&mut self) {
+        tracing::info!("Radio API: fetching popular stations with geolocation...");
+
+        let api_result = self
+            .api
+            .get_stations()
+            .has_geo_info(true)
+            .hidebroken(true)
+            .order(radiobrowser::StationOrder::Clickcount)
+            .reverse(true)
+            .send()
+            .await;
+        self.send_station_result(api_result);
+    }
+    #[tracing::instrument(skip_all)]
+    async fn get_tags(&mut self) {
+        tracing::info!("Radio API: fetching tags");
+
+        let tag_result = self.api.get_tags().hidebroken(true).send().await;
+        self.send_tag_result(tag_result);
     }
 }
 

@@ -58,7 +58,14 @@ impl Ratlas {
         let rx_radio = channels.rx_radio.clone();
         let proxy_radio = proxy.clone();
         let _ = std::thread::spawn(|| radio_api::radio_api_worker(rx_radio, proxy_radio));
-        channels.tx_radio.send(RadioMessage::GetPopular).unwrap();
+        channels
+            .tx_radio
+            .send(RadioMessage::GetPopular)
+            .expect("This should work");
+        channels
+            .tx_radio
+            .send(RadioMessage::GetTags)
+            .expect("This should work");
 
         // 2. Audio Playback Worker Thread
         let rx_playback = channels.rx_playback.clone();
@@ -127,6 +134,7 @@ impl ApplicationHandler<ProxyMessage> for Ratlas {
         }
     }
 
+    #[tracing::instrument(skip_all)]
     fn user_event(&mut self, event_loop: &ActiveEventLoop, event: ProxyMessage) {
         match event {
             ProxyMessage::RadioStationsLoaded(stations) => {
@@ -134,21 +142,17 @@ impl ApplicationHandler<ProxyMessage> for Ratlas {
                     "Received {} popular radio stations with geolocation info",
                     stations.len()
                 );
-                for (i, station) in stations.iter().enumerate() {
-                    tracing::info!(
-                        "[{:>2}] {:<30} | lat: {:>8.4}, lon: {:>8.4} | clicks: {}",
-                        i + 1,
-                        station.name,
-                        station.geo_lat.unwrap_or(0.0),
-                        station.geo_long.unwrap_or(0.0),
-                        station.clickcount
-                    );
-                }
                 if let Self::Running { state, window, .. } = self {
                     state.update_station_markers(stations);
                     if let Some(w) = window {
                         w.request_redraw();
                     }
+                }
+            }
+            ProxyMessage::RadioStationTags(tags) => {
+                tracing::info!("Retrieved {} tags", tags.len());
+                if let Self::Running { state, .. } = self {
+                    state.api_tags = tags;
                 }
             }
             ProxyMessage::PlaybackStatusChanged(status) => {

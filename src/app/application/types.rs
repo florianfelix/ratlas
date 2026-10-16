@@ -3,6 +3,7 @@ use crossbeam_channel::{Receiver, Sender};
 #[derive(Debug, Clone)]
 pub enum RadioMessage {
     GetPopular,
+    GetTags,
 }
 
 #[derive(Clone)]
@@ -36,6 +37,7 @@ impl Channels {
 #[derive(Debug, Clone)]
 pub enum ProxyMessage {
     RadioStationsLoaded(Vec<radiobrowser::ApiStation>),
+    RadioStationTags(Vec<radiobrowser::ApiTag>),
     PlaybackStatusChanged(crate::playback::PlaybackStatus),
     TrayIconEvent(tray_icon::TrayIconEvent),
     MenuEvent(tray_icon::menu::MenuEvent),

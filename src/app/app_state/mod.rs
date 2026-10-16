@@ -16,6 +16,7 @@ pub struct AppState {
     pub objects: HashMap<String, RenderObject>,
     pub camera: Camera,
     pub radio_stations: Vec<radiobrowser::ApiStation>,
+    pub api_tags: Vec<radiobrowser::ApiTag>,
     pub hovered_station: Option<String>,  // stationuuid
     pub selected_station: Option<String>, // stationuuid
     pub playing_station: Option<String>,  // stationuuid
@@ -42,6 +43,7 @@ impl Default for AppState {
             objects: HashMap::new(),
             camera: Camera::default(),
             radio_stations: Vec::new(),
+            api_tags: Vec::new(),
             hovered_station: None,
             selected_station: None,
             playing_station: None,
@@ -234,7 +236,9 @@ impl AppState {
 
     /// Returns a reference to the currently playing station, if any.
     pub fn playing_station(&self) -> Option<&radiobrowser::ApiStation> {
-        self.playing_station.as_ref().and_then(|id| self.find_station(id))
+        self.playing_station
+            .as_ref()
+            .and_then(|id| self.find_station(id))
     }
 
     /// Sets or clears the currently playing station.
