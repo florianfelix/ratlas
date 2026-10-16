@@ -1,7 +1,7 @@
 use std::sync::Arc;
 use winit::window::Window;
 
-use crate::app::app_state::{AppState, gpu::Gpu};
+use crate::app::app_state::{AppState, StationFilter, gpu::Gpu};
 use iced_winit::program::Program;
 
 pub mod components;
@@ -20,6 +20,7 @@ pub struct UiState {
     pub station_limit: crate::app::app_state::StationLimit,
     pub displayed_stations_count: usize,
     pub total_stations_count: usize,
+    pub station_filter: StationFilter,
 }
 
 pub type Element<'a> = iced_wgpu::core::Element<'a, Message, iced::Theme, iced_wgpu::Renderer>;
@@ -138,6 +139,7 @@ impl IcedUi {
         self.state.playing_station = state.playing_station().cloned();
         self.state.playback_status = Some(state.playback_status.clone());
         self.state.station_limit = state.station_limit;
+        self.state.station_filter = state.station_filter.clone();
         self.state.displayed_stations_count = state.radio_stations.len();
         self.state.total_stations_count = state.all_radio_stations.len();
     }
@@ -172,6 +174,9 @@ impl IcedUi {
         }
     }
 
+    /// Pure update pass: advances the Iced UI interface, draining all UI interaction messages
+    /// and returning the calculated viewport together with the list of produced messages.
+    /// Does not touch winit Window or external system channels.
     pub fn update(&mut self, window: &Window) -> UiUpdateResult {
         let physical_size = window.inner_size();
         let viewport = iced_wgpu::graphics::Viewport::with_physical_size(

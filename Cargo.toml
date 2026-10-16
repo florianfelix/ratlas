@@ -32,6 +32,7 @@ reqwest = { version = "0.13.5", features = ["cookies", "blocking"] }
 radiobrowser = "0.6.1"
 rodio = "0.23.0"
 tray-icon = { version = "0.26.1", default-features = false, features = ["ksni"] }
+isocountry = "0.3.2"
 
 
 [profile.release]

@@ -11,7 +11,40 @@ pub mod gpu;
 pub mod spatial_grid;
 
 pub use camera::{Camera, Ray};
+use radiobrowser::ApiStation;
 pub use spatial_grid::{GlobeSpatialGrid, SpatialStation};
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StationFilter {
+    pub country_code: Option<isocountry::CountryCode>,
+    pub tags: Vec<String>,
+}
+
+impl Default for StationFilter {
+    fn default() -> Self {
+        Self {
+            country_code: None,
+            tags: vec![],
+        }
+    }
+}
+
+impl StationFilter {
+    pub fn matches(&self, station: &ApiStation) -> bool {
+        if let Some(ref cc) = self.country_code {
+            if !station.countrycode.eq_ignore_ascii_case(cc.alpha2()) {
+                return false;
+            }
+        }
+        for tag in &self.tags {
+            if !station.tags.contains(tag) {
+                return false;
+            }
+        }
+
+        true
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum StationLimit {
@@ -62,6 +95,7 @@ pub struct AppState {
     pub camera: Camera,
     pub all_radio_stations: Vec<radiobrowser::ApiStation>,
     pub radio_stations: Vec<radiobrowser::ApiStation>,
+    pub station_filter: StationFilter,
     pub api_tags: Vec<radiobrowser::ApiTag>,
     pub station_limit: StationLimit,
     pub marker_instances: Vec<MarkerInstance>,
@@ -93,6 +127,7 @@ impl Default for AppState {
             camera: Camera::default(),
             all_radio_stations: Vec::new(),
             radio_stations: Vec::new(),
+            station_filter: StationFilter::default(),
             api_tags: Vec::new(),
             station_limit: StationLimit::default(),
             marker_instances: Vec::new(),
@@ -128,6 +163,9 @@ impl AppState {
             Message::SetStationLimit(limit) => {
                 self.set_station_limit(*limit);
             }
+            Message::StationFilterChanged(filter) => {
+                self.set_station_filter(filter.clone());
+            }
             Message::TogglePlayback | Message::StopPlayback | Message::PlayStation { .. } => {
                 // Handled in application run loop / channels
             }
@@ -141,6 +179,13 @@ impl AppState {
         }
     }
 
+    pub fn set_station_filter(&mut self, filter: StationFilter) {
+        if self.station_filter != filter {
+            self.station_filter = filter;
+            self.rebuild_station_markers();
+        }
+    }
+
     pub fn update_station_markers(&mut self, stations: Vec<radiobrowser::ApiStation>) {
         self.all_radio_stations = stations;
         self.rebuild_station_markers();
@@ -149,8 +194,19 @@ impl AppState {
     pub fn rebuild_station_markers(&mut self) {
         let limit = self.station_limit.to_count();
         self.radio_stations = match limit {
-            Some(max) => self.all_radio_stations.iter().take(max).cloned().collect(),
-            None => self.all_radio_stations.clone(),
+            Some(max) => self
+                .all_radio_stations
+                .iter()
+                .filter(|s| self.station_filter.matches(s))
+                .take(max)
+                .cloned()
+                .collect(),
+            None => self
+                .all_radio_stations
+                .iter()
+                .filter(|s| self.station_filter.matches(s))
+                .cloned()
+                .collect(),
         };
 
         // 1. Clear previous marker instances and spatial grid
@@ -568,6 +624,31 @@ mod tests {
         // Find station should still find stations outside the current active slice
         state.set_station_limit(StationLimit::Limit500);
         assert!(state.find_station("uuid-2999").is_some());
+    }
+
+    #[test]
+    fn test_country_filter_matching() {
+        let mut state = AppState::default();
+        let mut s_de = dummy_station("s-de", "German Station");
+        s_de.countrycode = "DE".to_string();
+
+        let mut s_us = dummy_station("s-us", "US Station");
+        s_us.countrycode = "US".to_string();
+
+        state.update_station_markers(vec![s_de, s_us]);
+        assert_eq!(state.radio_stations.len(), 2);
+
+        // Filter by Germany (DEU)
+        state.set_station_filter(StationFilter {
+            country_code: Some(isocountry::CountryCode::DEU),
+            tags: vec![],
+        });
+        assert_eq!(state.radio_stations.len(), 1);
+        assert_eq!(state.radio_stations[0].stationuuid, "s-de");
+
+        // Clear filter
+        state.set_station_filter(StationFilter::default());
+        assert_eq!(state.radio_stations.len(), 2);
     }
 
     #[test]

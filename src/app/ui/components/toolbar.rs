@@ -1,11 +1,10 @@
-#![allow(unused)]
 use crate::app::{
     app_state::StationLimit,
     ui::{Element, Message, UiState},
 };
 use iced::{
     Length,
-    widget::{container, pick_list, row, text},
+    widget::{button, container, pick_list, row, text},
 };
 
 pub fn toolbar<'a>(state: &'a UiState) -> Element<'a> {
@@ -18,9 +17,35 @@ pub fn toolbar<'a>(state: &'a UiState) -> Element<'a> {
         )
         .text_size(12)
         .padding([3, 8]),
+        text("Country:").size(12).align_y(iced::Alignment::Center),
+        pick_list(
+            isocountry::CountryCode::as_array().as_slice(),
+            state.station_filter.country_code,
+            {
+                let filter = state.station_filter.clone();
+                move |selected| {
+                    let mut f = filter.clone();
+                    f.country_code = Some(selected);
+                    Message::StationFilterChanged(f)
+                }
+            },
+        )
+        .placeholder("All Countries")
+        .text_size(12)
+        .padding([3, 8]),
     ]
     .spacing(8)
     .align_y(iced::Alignment::Center);
+
+    if state.station_filter.country_code.is_some() {
+        let mut clear_filter = state.station_filter.clone();
+        clear_filter.country_code = None;
+        left_controls = left_controls.push(
+            button(text("✕").size(10).align_y(iced::Alignment::Center))
+                .padding([3, 6])
+                .on_press(Message::StationFilterChanged(clear_filter)),
+        );
+    }
 
     if state.total_stations_count > 0 {
         let count_str = format!(
