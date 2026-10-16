@@ -2,14 +2,16 @@ use std::collections::HashMap;
 
 use crate::{
     app::ui::Message,
-    data::{Effector, RenderObject, effector::EffectorKind},
+    data::{Effector, RenderObject},
 };
 
 pub mod camera;
 pub mod canvas_renderer;
 pub mod gpu;
+pub mod spatial_grid;
 
 pub use camera::{Camera, Ray};
+pub use spatial_grid::{GlobeSpatialGrid, SpatialStation};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum StationLimit {
@@ -61,6 +63,7 @@ pub struct AppState {
     pub radio_stations: Vec<radiobrowser::ApiStation>,
     pub api_tags: Vec<radiobrowser::ApiTag>,
     pub station_limit: StationLimit,
+    pub spatial_grid: GlobeSpatialGrid,
     pub hovered_station: Option<String>,  // stationuuid
     pub selected_station: Option<String>, // stationuuid
     pub playing_station: Option<String>,  // stationuuid
@@ -90,6 +93,7 @@ impl Default for AppState {
             radio_stations: Vec::new(),
             api_tags: Vec::new(),
             station_limit: StationLimit::default(),
+            spatial_grid: GlobeSpatialGrid::default(),
             hovered_station: None,
             selected_station: None,
             playing_station: None,
@@ -146,8 +150,9 @@ impl AppState {
             None => self.all_radio_stations.clone(),
         };
 
-        // 1. Remove old station markers from world
+        // 1. Remove old station markers from world and clear spatial grid
         self.world.remove_by_tag("station_marker");
+        self.spatial_grid.clear();
 
         // 2. Look up preloaded marker template
         let Some(marker_template) = self
@@ -164,8 +169,10 @@ impl AppState {
         let sphere_radius = 1.002_f32;
         let marker_scale = glam::Vec3::splat(0.06);
 
+        let base_world_index = self.world.objects.len();
         let mut new_markers = Vec::with_capacity(self.radio_stations.len());
-        for station in &self.radio_stations {
+
+        for (i, station) in self.radio_stations.iter().enumerate() {
             let (Some(lat), Some(lon)) = (station.geo_lat, station.geo_long) else {
                 continue;
             };
@@ -184,6 +191,14 @@ impl AppState {
                 .with_transform(position, rotation, marker_scale);
 
             new_markers.push(marker);
+
+            self.spatial_grid.insert(SpatialStation {
+                uuid: station.stationuuid.clone(),
+                position,
+                lat: lat as f32,
+                lon: lon as f32,
+                world_index: base_world_index + i,
+            });
         }
 
         // 4. Add new markers to world
@@ -223,6 +238,11 @@ impl AppState {
         // don't pop out while their 3D geometry is still partially visible.
         const HORIZON_CULL_MARGIN: f32 = -0.05;
 
+        let cam_eff_opt = self
+            .effectors
+            .iter()
+            .find(|e| e.name == "CameraProximityEffector");
+
         for obj in &mut self.world.objects {
             if obj.tag == "station_marker" {
                 // Horizon / Backface Culling:
@@ -239,59 +259,77 @@ impl AppState {
                 }
 
                 let mut current_scale = obj.base_scale;
-                let mut current_tint = glam::Vec4::ONE;
-
-                // 1. Evaluate effectors
-                for effector in &self.effectors {
-                    let (scale_mult, tint_opt) = effector.evaluate(obj.position);
+                if let Some(cam_eff) = cam_eff_opt {
+                    let (scale_mult, _) = cam_eff.evaluate(obj.position);
                     current_scale *= scale_mult;
-                    if let Some(t) = tint_opt {
-                        current_tint += t;
-                    }
-                }
-
-                // 2. Apply hover and selection highlights on top
-                if obj.id.as_ref() == self.hovered_station.as_ref() {
-                    current_scale *= 1.25;
-                    current_tint *= glam::Vec4::new(0.7, 1.3, 1.5, 1.0);
-                } else if obj.id.as_ref() == self.selected_station.as_ref() {
-                    current_scale *= 1.15;
-                    current_tint *= glam::Vec4::new(1.3, 1.1, 0.4, 1.0);
                 }
 
                 obj.scale = current_scale;
-                obj.color_tint = current_tint;
+                obj.color_tint = glam::Vec4::ONE;
+            }
+        }
+
+        // Mouse Globe Lens: only evaluate the few stations within spatial grid radius
+        if let Some(globe_pos) = self.mouse_globe_pos {
+            if let Some(lens_eff) = self.effectors.iter().find(|e| e.name == "MouseGlobeLens") {
+                if lens_eff.enabled {
+                    if let Some(radius) = lens_eff.radius() {
+                        let nearby = self.spatial_grid.query_radius(globe_pos, radius);
+                        for station in nearby {
+                            if station.world_index < self.world.objects.len() {
+                                let obj = &mut self.world.objects[station.world_index];
+                                if obj.visible {
+                                    let (scale_mult, tint_opt) = lens_eff.evaluate(obj.position);
+                                    obj.scale *= scale_mult;
+                                    if let Some(t) = tint_opt {
+                                        obj.color_tint += t;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Apply hover and selection highlights
+        if let Some(ref hovered_id) = self.hovered_station {
+            for obj in &mut self.world.objects {
+                if obj.id.as_deref() == Some(hovered_id) {
+                    obj.scale *= 1.25;
+                    obj.color_tint *= glam::Vec4::new(0.7, 1.3, 1.5, 1.0);
+                    break;
+                }
+            }
+        }
+        if let Some(ref selected_id) = self.selected_station {
+            for obj in &mut self.world.objects {
+                if obj.id.as_deref() == Some(selected_id) {
+                    obj.scale *= 1.15;
+                    obj.color_tint *= glam::Vec4::new(1.3, 1.1, 0.4, 1.0);
+                    break;
+                }
             }
         }
     }
 
-    /// Picks a station marker under the cursor using the picking effector.
+    /// Picks a station marker under the cursor using the fast spatial grid and picking radius.
     /// Finds the closest marker to the cursor hit point on the globe within the picking effector radius,
-    /// ensuring deterministic, stable hover/selection that visually matches the lens magnification.
+    /// in O(1) time without scanning all objects in the world.
     pub fn pick_station(&self, ray: &Ray) -> Option<&radiobrowser::ApiStation> {
         // Distance to the front surface of the Earth
         let earth_dist = ray.intersect_sphere(glam::Vec3::ZERO, Camera::SPHERE_RADIUS)?;
         let globe_hit = ray.origin + ray.direction * earth_dist;
 
-        // Query the dedicated picking effector, or fall back to any active spherical lens
-        let picker = self.effectors.iter().find(|e| e.is_picker()).or_else(|| {
-            self.effectors
-                .iter()
-                .find(|e| matches!(e.kind, EffectorKind::SphericalLens { .. }))
-        })?;
+        let picker_radius = self
+            .effectors
+            .iter()
+            .find(|e| e.is_picker())
+            .and_then(|e| e.radius())
+            .unwrap_or(0.02);
 
-        let mut active_picker = picker.clone();
-        active_picker.position = globe_hit;
-        active_picker.enabled = true;
-
-        let candidates = self
-            .world
-            .get_by_tag("station_marker")
-            .filter(|obj| obj.visible)
-            .filter_map(|obj| obj.id.as_deref().map(|id| (id, obj.position)));
-
-        let (picked_id, _) = active_picker.pick_closest(candidates)?;
-        self.find_station(picked_id)
+        let (station, _) = self.spatial_grid.query_closest(globe_hit, picker_radius)?;
+        self.find_station(&station.uuid)
     }
 
     /// Looks up a station by UUID
@@ -378,6 +416,7 @@ impl World {
             .find(|obj| obj.id.as_deref() == Some(id))
     }
 
+    #[allow(dead_code)]
     pub fn get_by_tag(&self, tag: &str) -> impl Iterator<Item = &RenderObject> {
         self.objects.iter().filter(move |obj| obj.tag == tag)
     }

@@ -112,9 +112,11 @@ pub fn handle_cursor_moved(
     } else {
         // Hover detection when mouse is moving without dragging
         let hovered_uuid = state.pick_station(&ray).map(|s| s.stationuuid.clone());
-        state.set_hovered_station(hovered_uuid);
-        // Mouse lens effector follows cursor across globe surface
-        state.apply_effectors();
+        let hover_changed = state.set_hovered_station(hovered_uuid);
+        // Only run apply_effectors if set_hovered_station didn't already trigger it
+        if !hover_changed {
+            state.apply_effectors();
+        }
         window.request_redraw();
     }
 
