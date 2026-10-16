@@ -57,7 +57,7 @@ impl iced_winit::program::Program for Ui {
         _state: &Self::State,
         _window: iced_wgpu::core::window::Id,
     ) -> Option<Self::Theme> {
-        Some(iced::Theme::Dracula)
+        Some(iced::Theme::SolarizedDark)
     }
     fn settings(&self) -> iced::Settings {
         iced::Settings::default()
