@@ -17,6 +17,9 @@ pub struct UiState {
     pub selected_station: Option<radiobrowser::ApiStation>,
     pub playing_station: Option<radiobrowser::ApiStation>,
     pub playback_status: Option<crate::playback::PlaybackStatus>,
+    pub station_limit: crate::app::app_state::StationLimit,
+    pub displayed_stations_count: usize,
+    pub total_stations_count: usize,
 }
 
 pub type Element<'a> = iced_wgpu::core::Element<'a, Message, iced::Theme, iced_wgpu::Renderer>;
@@ -134,6 +137,9 @@ impl IcedUi {
             .cloned();
         self.state.playing_station = state.playing_station().cloned();
         self.state.playback_status = Some(state.playback_status.clone());
+        self.state.station_limit = state.station_limit;
+        self.state.displayed_stations_count = state.radio_stations.len();
+        self.state.total_stations_count = state.all_radio_stations.len();
     }
 
     #[tracing::instrument(skip_all)]

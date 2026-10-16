@@ -1,6 +1,8 @@
 use iced::Task;
 use tracing::info;
 
+use crate::app::app_state::StationLimit;
+
 use super::UiState;
 
 #[derive(Debug, Clone)]
@@ -8,6 +10,7 @@ use super::UiState;
 pub enum Message {
     ButtonClicked,
     ResetCamera,
+    SetStationLimit(StationLimit),
     TogglePlayback,
     StopPlayback,
     PlayStation { url: String, name: String },
@@ -24,6 +27,9 @@ pub fn handle_message(state: &mut UiState, message: Message) -> Task<Message> {
         }
         Message::ResetCamera => {
             // Can trigger camera reset or set dirty flags
+        }
+        Message::SetStationLimit(limit) => {
+            state.station_limit = limit;
         }
         Message::TogglePlayback | Message::StopPlayback | Message::PlayStation { .. } => {
             // Application-level worker handles playback messages

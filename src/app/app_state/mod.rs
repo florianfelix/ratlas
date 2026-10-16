@@ -11,12 +11,56 @@ pub mod gpu;
 
 pub use camera::{Camera, Ray};
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum StationLimit {
+    Limit500,
+    #[default]
+    Limit1000,
+    Limit2500,
+    Limit5000,
+    All,
+}
+
+impl StationLimit {
+    pub const ALL: [StationLimit; 5] = [
+        StationLimit::Limit500,
+        StationLimit::Limit1000,
+        StationLimit::Limit2500,
+        StationLimit::Limit5000,
+        StationLimit::All,
+    ];
+
+    pub fn to_count(self) -> Option<usize> {
+        match self {
+            StationLimit::Limit500 => Some(500),
+            StationLimit::Limit1000 => Some(1000),
+            StationLimit::Limit2500 => Some(2500),
+            StationLimit::Limit5000 => Some(5000),
+            StationLimit::All => None,
+        }
+    }
+}
+
+impl std::fmt::Display for StationLimit {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            StationLimit::Limit500 => write!(f, "500"),
+            StationLimit::Limit1000 => write!(f, "1,000"),
+            StationLimit::Limit2500 => write!(f, "2,500"),
+            StationLimit::Limit5000 => write!(f, "5,000"),
+            StationLimit::All => write!(f, "All"),
+        }
+    }
+}
+
 pub struct AppState {
     pub world: World,
     pub objects: HashMap<String, RenderObject>,
     pub camera: Camera,
+    pub all_radio_stations: Vec<radiobrowser::ApiStation>,
     pub radio_stations: Vec<radiobrowser::ApiStation>,
     pub api_tags: Vec<radiobrowser::ApiTag>,
+    pub station_limit: StationLimit,
     pub hovered_station: Option<String>,  // stationuuid
     pub selected_station: Option<String>, // stationuuid
     pub playing_station: Option<String>,  // stationuuid
@@ -42,8 +86,10 @@ impl Default for AppState {
             world: World::new(),
             objects: HashMap::new(),
             camera: Camera::default(),
+            all_radio_stations: Vec::new(),
             radio_stations: Vec::new(),
             api_tags: Vec::new(),
+            station_limit: StationLimit::default(),
             hovered_station: None,
             selected_station: None,
             playing_station: None,
@@ -62,6 +108,7 @@ impl AppState {
         }
         self.apply_effectors();
     }
+
     /// Handles application-level actions and mutations triggered by UI messages
     pub fn handle_message(&mut self, message: &Message) {
         match message {
@@ -71,14 +118,33 @@ impl AppState {
             Message::ButtonClicked => {
                 // Application-level logic when button is clicked
             }
+            Message::SetStationLimit(limit) => {
+                self.set_station_limit(*limit);
+            }
             Message::TogglePlayback | Message::StopPlayback | Message::PlayStation { .. } => {
                 // Handled in application run loop / channels
             }
         }
     }
 
+    pub fn set_station_limit(&mut self, limit: StationLimit) {
+        if self.station_limit != limit {
+            self.station_limit = limit;
+            self.rebuild_station_markers();
+        }
+    }
+
     pub fn update_station_markers(&mut self, stations: Vec<radiobrowser::ApiStation>) {
-        self.radio_stations = stations;
+        self.all_radio_stations = stations;
+        self.rebuild_station_markers();
+    }
+
+    pub fn rebuild_station_markers(&mut self) {
+        let limit = self.station_limit.to_count();
+        self.radio_stations = match limit {
+            Some(max) => self.all_radio_stations.iter().take(max).cloned().collect(),
+            None => self.all_radio_stations.clone(),
+        };
 
         // 1. Remove old station markers from world
         self.world.remove_by_tag("station_marker");
@@ -209,7 +275,10 @@ impl AppState {
 
     /// Looks up a station by UUID
     pub fn find_station(&self, uuid: &str) -> Option<&radiobrowser::ApiStation> {
-        self.radio_stations.iter().find(|s| s.stationuuid == uuid)
+        self.all_radio_stations
+            .iter()
+            .find(|s| s.stationuuid == uuid)
+            .or_else(|| self.radio_stations.iter().find(|s| s.stationuuid == uuid))
     }
 
     /// Updates hover state and triggers effector updates.
@@ -298,6 +367,42 @@ mod tests {
     use super::*;
     use crate::data::PickingEffector;
 
+    fn dummy_station(uuid: &str, name: &str) -> radiobrowser::ApiStation {
+        radiobrowser::ApiStation {
+            changeuuid: "".to_string(),
+            stationuuid: uuid.to_string(),
+            serveruuid: None,
+            name: name.to_string(),
+            url: "http://stream.org".to_string(),
+            url_resolved: "http://stream.org".to_string(),
+            homepage: "".to_string(),
+            favicon: "".to_string(),
+            tags: "".to_string(),
+            country: "".to_string(),
+            countrycode: "".to_string(),
+            iso_3166_2: None,
+            state: "".to_string(),
+            language: "".to_string(),
+            languagecodes: None,
+            votes: 0,
+            lastchangetime_iso8601: None,
+            codec: "MP3".to_string(),
+            bitrate: 128,
+            hls: 0,
+            lastcheckok: 1,
+            lastchecktime_iso8601: None,
+            lastcheckoktime_iso8601: None,
+            lastlocalchecktime_iso8601: None,
+            clicktimestamp_iso8601: None,
+            clickcount: 10,
+            clicktrend: 0,
+            ssl_error: Some(0),
+            geo_lat: Some(10.0),
+            geo_long: Some(20.0),
+            has_extended_info: None,
+        }
+    }
+
     #[test]
     fn test_sphere_coords_mapping() {
         let (pos_greenwich, normal_greenwich) = RenderObject::sphere_coords(0.0, 0.0, 1.0);
@@ -371,5 +476,43 @@ mod tests {
 
         let picked = picker.pick_closest(candidates.iter().map(|(id, pos)| (*id, *pos)));
         assert_eq!(picked.map(|(id, _)| id), Some("uuid-1"));
+    }
+
+    #[test]
+    fn test_station_limit_counts() {
+        assert_eq!(StationLimit::Limit500.to_count(), Some(500));
+        assert_eq!(StationLimit::Limit1000.to_count(), Some(1000));
+        assert_eq!(StationLimit::Limit2500.to_count(), Some(2500));
+        assert_eq!(StationLimit::Limit5000.to_count(), Some(5000));
+        assert_eq!(StationLimit::All.to_count(), None);
+    }
+
+    #[test]
+    fn test_station_limit_filtering() {
+        let mut state = AppState::default();
+        let stations: Vec<_> = (0..3000)
+            .map(|i| dummy_station(&format!("uuid-{}", i), &format!("Station {}", i)))
+            .collect();
+
+        // Default limit is 1,000
+        state.update_station_markers(stations);
+        assert_eq!(state.all_radio_stations.len(), 3000);
+        assert_eq!(state.radio_stations.len(), 1000);
+
+        // Change limit to 500
+        state.set_station_limit(StationLimit::Limit500);
+        assert_eq!(state.radio_stations.len(), 500);
+
+        // Change limit to 2500
+        state.set_station_limit(StationLimit::Limit2500);
+        assert_eq!(state.radio_stations.len(), 2500);
+
+        // Change limit to All
+        state.set_station_limit(StationLimit::All);
+        assert_eq!(state.radio_stations.len(), 3000);
+
+        // Find station should still find stations outside the current active slice
+        state.set_station_limit(StationLimit::Limit500);
+        assert!(state.find_station("uuid-2999").is_some());
     }
 }

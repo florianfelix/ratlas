@@ -31,8 +31,9 @@ pub fn update_ui(
             }
             Message::PlayStation { url, name } => {
                 if let Some(station) = state
-                    .radio_stations
+                    .all_radio_stations
                     .iter()
+                    .chain(state.radio_stations.iter())
                     .find(|s| &s.url == url || &s.url_resolved == url)
                 {
                     state.set_playing_station(Some(station.stationuuid.clone()));

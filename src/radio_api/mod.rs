@@ -149,15 +149,23 @@ impl RadioStations {
             .hidebroken(true)
             .order(radiobrowser::StationOrder::Clickcount)
             .reverse(true)
+            .limit("100000")
             .send()
             .await;
         self.send_station_result(api_result);
     }
+
     #[tracing::instrument(skip_all)]
     async fn get_tags(&mut self) {
         tracing::info!("Radio API: fetching tags");
 
-        let tag_result = self.api.get_tags().hidebroken(true).send().await;
+        let tag_result = self
+            .api
+            .get_tags()
+            .hidebroken(true)
+            .limit("100000")
+            .send()
+            .await;
         self.send_tag_result(tag_result);
     }
 }
