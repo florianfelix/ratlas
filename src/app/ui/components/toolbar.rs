@@ -17,7 +17,7 @@ pub fn toolbar<'a>(state: &'a UiState) -> Element<'a> {
     }
 
     container(content)
-        .style(container::primary)
+        .style(container::bordered_box)
         .width(Length::Fill)
         .padding(8)
         .into()

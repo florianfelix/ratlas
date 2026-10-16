@@ -67,7 +67,7 @@ pub fn inspector<'a>(state: &'a UiState) -> Element<'a> {
     }
 
     container(content)
-        .style(container::primary)
+        .style(container::bordered_box)
         .width(210)
         .padding(12)
         .into()
