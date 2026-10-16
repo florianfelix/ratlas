@@ -14,10 +14,27 @@ pub use camera::{Camera, Ray};
 use radiobrowser::ApiStation;
 pub use spatial_grid::{GlobeSpatialGrid, SpatialStation};
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum TagMatchMode {
+    #[default]
+    And,
+    Or,
+}
+
+impl std::fmt::Display for TagMatchMode {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            TagMatchMode::And => write!(f, "AND"),
+            TagMatchMode::Or => write!(f, "OR"),
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StationFilter {
     pub country_code: Option<isocountry::CountryCode>,
     pub tags: Vec<String>,
+    pub tag_match_mode: TagMatchMode,
 }
 
 impl Default for StationFilter {
@@ -25,6 +42,7 @@ impl Default for StationFilter {
         Self {
             country_code: None,
             tags: vec![],
+            tag_match_mode: TagMatchMode::default(),
         }
     }
 }
@@ -36,8 +54,18 @@ impl StationFilter {
                 return false;
             }
         }
-        for tag in &self.tags {
-            if !station.tags.contains(tag) {
+        if !self.tags.is_empty() {
+            let mut tag_matches = self.tags.iter().map(|tag| {
+                station
+                    .tags
+                    .split(',')
+                    .any(|t| t.trim().eq_ignore_ascii_case(tag))
+            });
+            let matched = match self.tag_match_mode {
+                TagMatchMode::And => tag_matches.all(|m| m),
+                TagMatchMode::Or => tag_matches.any(|m| m),
+            };
+            if !matched {
                 return false;
             }
         }
@@ -165,6 +193,42 @@ impl AppState {
             }
             Message::StationFilterChanged(filter) => {
                 self.set_station_filter(filter.clone());
+            }
+            Message::TagSearchInputChanged(_) => {
+                // Handled in UI state
+            }
+            Message::AddTagFilter(tag) => {
+                if !self
+                    .station_filter
+                    .tags
+                    .iter()
+                    .any(|t| t.eq_ignore_ascii_case(tag))
+                {
+                    self.station_filter.tags.push(tag.clone());
+                    self.rebuild_station_markers();
+                }
+            }
+            Message::RemoveTagFilter(tag) => {
+                let prev_len = self.station_filter.tags.len();
+                self.station_filter
+                    .tags
+                    .retain(|t| !t.eq_ignore_ascii_case(tag));
+                if self.station_filter.tags.len() != prev_len {
+                    self.rebuild_station_markers();
+                }
+            }
+            Message::SetTagMatchMode(mode) => {
+                if self.station_filter.tag_match_mode != *mode {
+                    self.station_filter.tag_match_mode = *mode;
+                    self.rebuild_station_markers();
+                }
+            }
+            Message::ToggleTagMatchMode => {
+                self.station_filter.tag_match_mode = match self.station_filter.tag_match_mode {
+                    TagMatchMode::And => TagMatchMode::Or,
+                    TagMatchMode::Or => TagMatchMode::And,
+                };
+                self.rebuild_station_markers();
             }
             Message::TogglePlayback | Message::StopPlayback | Message::PlayStation { .. } => {
                 // Handled in application run loop / channels
@@ -668,6 +732,7 @@ mod tests {
         state.set_station_filter(StationFilter {
             country_code: Some(isocountry::CountryCode::DEU),
             tags: vec![],
+            tag_match_mode: TagMatchMode::default(),
         });
         assert_eq!(state.radio_stations.len(), 1);
         assert_eq!(state.radio_stations[0].stationuuid, "s-de");
@@ -675,6 +740,105 @@ mod tests {
         // Clear filter
         state.set_station_filter(StationFilter::default());
         assert_eq!(state.radio_stations.len(), 2);
+    }
+
+    #[test]
+    fn test_tag_filter_matching() {
+        let mut state = AppState::default();
+        let mut s1 = dummy_station("s1", "Rock Station");
+        s1.tags = "rock, classic rock, 80s".to_string();
+        let mut s2 = dummy_station("s2", "Jazz Station");
+        s2.tags = "jazz, smooth jazz".to_string();
+        let mut s3 = dummy_station("s3", "Pop Party");
+        s3.tags = "pop, party".to_string();
+
+        state.update_station_markers(vec![s1, s2, s3]);
+        assert_eq!(state.radio_stations.len(), 3);
+
+        // Filter by "rock"
+        state.handle_message(&Message::AddTagFilter("rock".to_string()));
+        assert_eq!(state.radio_stations.len(), 1);
+        assert_eq!(state.radio_stations[0].stationuuid, "s1");
+
+        // Remove "rock"
+        state.handle_message(&Message::RemoveTagFilter("rock".to_string()));
+        assert_eq!(state.radio_stations.len(), 3);
+
+        // Exact tag boundary: filtering by "art" should NOT match "party"
+        state.handle_message(&Message::AddTagFilter("art".to_string()));
+        assert_eq!(state.radio_stations.len(), 0);
+        state.handle_message(&Message::RemoveTagFilter("art".to_string()));
+
+        // Case insensitivity
+        state.handle_message(&Message::AddTagFilter("JAZZ".to_string()));
+        assert_eq!(state.radio_stations.len(), 1);
+        assert_eq!(state.radio_stations[0].stationuuid, "s2");
+    }
+
+    #[test]
+    fn test_tag_match_mode_and_vs_or() {
+        let mut state = AppState::default();
+        let mut s1 = dummy_station("s1", "Rock Only");
+        s1.tags = "rock".to_string();
+        let mut s2 = dummy_station("s2", "Jazz Only");
+        s2.tags = "jazz".to_string();
+        let mut s3 = dummy_station("s3", "Rock and Jazz");
+        s3.tags = "rock, jazz".to_string();
+
+        state.update_station_markers(vec![s1, s2, s3]);
+        assert_eq!(state.radio_stations.len(), 3);
+
+        // Add both "rock" and "jazz"
+        state.handle_message(&Message::AddTagFilter("rock".to_string()));
+        state.handle_message(&Message::AddTagFilter("jazz".to_string()));
+
+        // Default mode is AND: only s3 has both
+        assert_eq!(state.station_filter.tag_match_mode, TagMatchMode::And);
+        assert_eq!(state.radio_stations.len(), 1);
+        assert_eq!(state.radio_stations[0].stationuuid, "s3");
+
+        // Switch to OR mode: s1, s2, and s3 match
+        state.handle_message(&Message::SetTagMatchMode(TagMatchMode::Or));
+        assert_eq!(state.station_filter.tag_match_mode, TagMatchMode::Or);
+        assert_eq!(state.radio_stations.len(), 3);
+
+        // Toggle back to AND mode: only s3 matches
+        state.handle_message(&Message::ToggleTagMatchMode);
+        assert_eq!(state.station_filter.tag_match_mode, TagMatchMode::And);
+        assert_eq!(state.radio_stations.len(), 1);
+        assert_eq!(state.radio_stations[0].stationuuid, "s3");
+    }
+
+    #[test]
+    fn test_combined_country_and_tag_filter() {
+        let mut state = AppState::default();
+        let mut s_de_rock = dummy_station("s-de-rock", "German Rock");
+        s_de_rock.countrycode = "DE".to_string();
+        s_de_rock.tags = "rock, indie".to_string();
+
+        let mut s_de_jazz = dummy_station("s-de-jazz", "German Jazz");
+        s_de_jazz.countrycode = "DE".to_string();
+        s_de_jazz.tags = "jazz".to_string();
+
+        let mut s_us_rock = dummy_station("s-us-rock", "US Rock");
+        s_us_rock.countrycode = "US".to_string();
+        s_us_rock.tags = "rock, metal".to_string();
+
+        state.update_station_markers(vec![s_de_rock, s_de_jazz, s_us_rock]);
+        assert_eq!(state.radio_stations.len(), 3);
+
+        // Filter by DEU
+        state.set_station_filter(StationFilter {
+            country_code: Some(isocountry::CountryCode::DEU),
+            tags: vec![],
+            tag_match_mode: TagMatchMode::default(),
+        });
+        assert_eq!(state.radio_stations.len(), 2);
+
+        // Add tag "rock" -> only s-de-rock matches
+        state.handle_message(&Message::AddTagFilter("rock".to_string()));
+        assert_eq!(state.radio_stations.len(), 1);
+        assert_eq!(state.radio_stations[0].stationuuid, "s-de-rock");
     }
 
     #[test]

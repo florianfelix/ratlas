@@ -21,6 +21,8 @@ pub struct UiState {
     pub displayed_stations_count: usize,
     pub total_stations_count: usize,
     pub station_filter: StationFilter,
+    pub tag_search_query: String,
+    pub api_tags: Vec<radiobrowser::ApiTag>,
 }
 
 pub type Element<'a> = iced_wgpu::core::Element<'a, Message, iced::Theme, iced_wgpu::Renderer>;
@@ -144,6 +146,9 @@ impl IcedUi {
         self.state.station_filter = state.station_filter.clone();
         self.state.displayed_stations_count = state.radio_stations.len();
         self.state.total_stations_count = state.all_radio_stations.len();
+        if self.state.api_tags.len() != state.api_tags.len() {
+            self.state.api_tags = state.api_tags.clone();
+        }
     }
 
     #[tracing::instrument(skip_all)]
@@ -210,7 +215,11 @@ impl IcedUi {
             self.cursor_position
         {
             let width = physical_size.width as f32 / window.scale_factor() as f32;
-            let is_top_bar = pos.y <= 48.0;
+            let is_top_bar = if self.state.tag_search_query.trim().is_empty() {
+                pos.y <= 48.0
+            } else {
+                pos.y <= 85.0
+            };
             let is_inspector = self.state.selected_station.is_some() && pos.x >= (width - 215.0);
             let is_hud = (self.state.playback_status.is_some()
                 || self.state.hovered_station_name.is_some())

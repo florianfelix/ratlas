@@ -2,7 +2,8 @@
 #![allow(
     clippy::single_match,
     clippy::collapsible_if,
-    clippy::unnecessary_map_or
+    clippy::unnecessary_map_or,
+    clippy::field_reassign_with_default
 )]
 
 use tracing::info;
