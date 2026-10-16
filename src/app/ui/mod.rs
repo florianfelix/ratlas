@@ -88,6 +88,7 @@ pub struct IcedUi {
     pub modifiers: winit::keyboard::ModifiersState,
     pub clipboard: iced_winit::clipboard::Clipboard,
     pub events: Vec<iced_wgpu::core::Event>,
+    pub pending_messages: Vec<Message>,
 }
 
 impl IcedUi {
@@ -109,6 +110,7 @@ impl IcedUi {
             modifiers: winit::keyboard::ModifiersState::default(),
             clipboard,
             events: Vec::new(),
+            pending_messages: Vec::new(),
         }
     }
 
@@ -162,20 +164,76 @@ impl IcedUi {
             _ => {}
         }
 
-        if let Some(iced_event) = iced_winit::conversion::window_event(
+        let Some(iced_event) = iced_winit::conversion::window_event(
             event.clone(),
             window.scale_factor() as f32,
             self.modifiers,
-        ) {
-            self.events.push(iced_event);
-            true
+        ) else {
+            return false;
+        };
+
+        let physical_size = window.inner_size();
+        let viewport = iced_wgpu::graphics::Viewport::with_physical_size(
+            iced_wgpu::core::Size::new(physical_size.width, physical_size.height),
+            window.scale_factor() as f32,
+        );
+
+        let mut user_interface = iced_runtime::UserInterface::build(
+            self.program.view(&self.state, self.window_id),
+            viewport.logical_size(),
+            std::mem::take(&mut self.cache),
+            &mut self.renderer,
+        );
+
+        let mut messages = Vec::new();
+        let (state, event_statuses) = user_interface.update(
+            &[iced_event],
+            self.cursor_position,
+            &mut self.renderer,
+            &mut self.clipboard,
+            &mut messages,
+        );
+
+        let is_captured = event_statuses
+            .iter()
+            .any(|s| matches!(s, iced_wgpu::core::event::Status::Captured));
+
+        let is_over_interactive = match state {
+            iced_runtime::user_interface::State::Updated {
+                mouse_interaction, ..
+            } => mouse_interaction != iced_wgpu::core::mouse::Interaction::None,
+            _ => false,
+        };
+
+        // Also check if the cursor is within the top toolbar or inspector bounds
+        let is_over_ui_bounds = if let iced_wgpu::core::mouse::Cursor::Available(pos) =
+            self.cursor_position
+        {
+            let width = physical_size.width as f32 / window.scale_factor() as f32;
+            let is_top_bar = pos.y <= 48.0;
+            let is_inspector = self.state.selected_station.is_some() && pos.x >= (width - 215.0);
+            let is_hud = (self.state.playback_status.is_some()
+                || self.state.hovered_station_name.is_some())
+                && pos.x <= 230.0
+                && pos.y > 48.0
+                && pos.y <= 180.0;
+            is_top_bar || is_inspector || is_hud
         } else {
             false
+        };
+
+        self.cache = user_interface.into_cache();
+
+        for message in &messages {
+            let _ = self.program.update(&mut self.state, message.clone());
         }
+        self.pending_messages.extend(messages);
+
+        is_captured || is_over_interactive || is_over_ui_bounds
     }
 
     /// Pure update pass: advances the Iced UI interface, draining all UI interaction messages
-    /// and returning the calculated viewport together with the list of produced messages.
+    /// and returning the calculated viewport together with the list of produced messages.\
     /// Does not touch winit Window or external system channels.
     pub fn update(&mut self, window: &Window) -> UiUpdateResult {
         let physical_size = window.inner_size();
@@ -191,7 +249,7 @@ impl IcedUi {
             &mut self.renderer,
         );
 
-        let mut messages = Vec::new();
+        let mut messages = std::mem::take(&mut self.pending_messages);
         let (_state, event_statuses) = user_interface.update(
             &self.events,
             self.cursor_position,

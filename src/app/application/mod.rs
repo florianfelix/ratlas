@@ -255,8 +255,20 @@ impl ApplicationHandler<ProxyMessage> for Ratlas {
             return;
         };
 
-        if ui.handle_event(window, &window_event) {
+        let is_mouse_event = matches!(
+            window_event,
+            WindowEvent::MouseInput { .. }
+                | WindowEvent::CursorMoved { .. }
+                | WindowEvent::MouseWheel { .. }
+        );
+
+        let swallowed_by_ui = ui.handle_event(window, &window_event);
+        if swallowed_by_ui {
             window.request_redraw();
+            if is_mouse_event && !mouse.is_pressed {
+                state.mouse_globe_pos = None;
+                return;
+            }
         }
 
         // Camera orbit, hover, selection, and effector interaction on viewport mouse events
