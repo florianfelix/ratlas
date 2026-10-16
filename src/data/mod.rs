@@ -51,6 +51,9 @@ pub struct RenderObject {
     pub mesh: Arc<Mesh>,
     pub material: Arc<Material>,
 
+    // Visibility flag (e.g. for horizon / frustum culling)
+    pub visible: bool,
+
     // Transform tracking
     pub position: glam::Vec3,
     pub rotation: glam::Quat,
@@ -105,6 +108,7 @@ impl RenderObject {
             id: None,
             mesh,
             material,
+            visible: true,
             position: glam::Vec3::ZERO,
             rotation: glam::Quat::IDENTITY,
             scale: glam::Vec3::ONE,
@@ -186,6 +190,7 @@ impl RenderObject {
             id: self.id.clone(),
             mesh: self.mesh.clone(),
             material: self.material.clone(),
+            visible: self.visible,
             position: self.position,
             rotation: self.rotation,
             scale: self.scale,

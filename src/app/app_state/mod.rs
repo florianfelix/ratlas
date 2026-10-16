@@ -193,7 +193,9 @@ impl AppState {
         self.apply_effectors();
     }
 
-    /// Evaluates all active effectors and updates marker scales and color tints
+    /// Evaluates all active effectors and updates marker scales and color tints.
+    /// Also performs horizon/backface culling on spherical station markers to skip
+    /// occluded markers on the back side of the Earth.
     pub fn apply_effectors(&mut self) {
         // Sync camera effector position with camera
         if let Some(cam_eff) = self
@@ -216,8 +218,26 @@ impl AppState {
             }
         }
 
+        let cam_pos = self.camera.position;
+        // Small margin (-0.05) ensures markers right at the horizon silhouette
+        // don't pop out while their 3D geometry is still partially visible.
+        const HORIZON_CULL_MARGIN: f32 = -0.05;
+
         for obj in &mut self.world.objects {
             if obj.tag == "station_marker" {
+                // Horizon / Backface Culling:
+                // Test if the marker's outward normal is facing the camera.
+                // For a sphere centered at origin, obj.position points along outward normal.
+                // to_cam = cam_pos - obj.position. If obj.position.dot(to_cam) <= margin,
+                // the marker is behind the horizon of the Earth sphere.
+                let to_cam = cam_pos - obj.position;
+                let is_visible = obj.position.dot(to_cam) > HORIZON_CULL_MARGIN;
+                obj.visible = is_visible;
+
+                if !is_visible {
+                    continue;
+                }
+
                 let mut current_scale = obj.base_scale;
                 let mut current_tint = glam::Vec4::ONE;
 
@@ -267,6 +287,7 @@ impl AppState {
         let candidates = self
             .world
             .get_by_tag("station_marker")
+            .filter(|obj| obj.visible)
             .filter_map(|obj| obj.id.as_deref().map(|id| (id, obj.position)));
 
         let (picked_id, _) = active_picker.pick_closest(candidates)?;
@@ -514,5 +535,32 @@ mod tests {
         // Find station should still find stations outside the current active slice
         state.set_station_limit(StationLimit::Limit500);
         assert!(state.find_station("uuid-2999").is_some());
+    }
+
+    #[test]
+    fn test_horizon_culling_math() {
+        let cam_pos = glam::Vec3::new(0.0, 0.0, 3.0);
+        const HORIZON_CULL_MARGIN: f32 = -0.05;
+
+        // Front facing marker (directly facing camera along +Z)
+        let front_pos = glam::Vec3::new(0.0, 0.0, 1.002);
+        let to_cam_front = cam_pos - front_pos;
+        let is_front_visible = front_pos.dot(to_cam_front) > HORIZON_CULL_MARGIN;
+        assert!(is_front_visible, "Front-facing marker should be visible");
+
+        // Backside marker (facing away from camera along -Z)
+        let back_pos = glam::Vec3::new(0.0, 0.0, -1.002);
+        let to_cam_back = cam_pos - back_pos;
+        let is_back_visible = back_pos.dot(to_cam_back) > HORIZON_CULL_MARGIN;
+        assert!(!is_back_visible, "Backside marker should be culled");
+
+        // Equator marker (perpendicular to camera ray, at 90 deg)
+        let side_pos = glam::Vec3::new(1.002, 0.0, 0.0);
+        let to_cam_side = cam_pos - side_pos;
+        let is_side_visible = side_pos.dot(to_cam_side) > HORIZON_CULL_MARGIN;
+        assert!(
+            !is_side_visible,
+            "Side marker at 90 deg from 3.0 units away is behind horizon"
+        );
     }
 }
