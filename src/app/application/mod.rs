@@ -109,15 +109,6 @@ impl ApplicationHandler<ProxyMessage> for Ratlas {
             default_sphere.tag = "earth".to_string();
             state.world.add_object(default_sphere);
 
-            let mut marker = RenderObject::from_files(
-                &canvas_renderer,
-                "assets/marker.obj",
-                "assets/marker.jpg",
-            );
-            marker.name = "marker".to_string();
-            marker.tag = "marker_template".to_string();
-            state.objects.insert("marker".to_string(), marker);
-
             window.request_redraw();
 
             *self = Self::Running {

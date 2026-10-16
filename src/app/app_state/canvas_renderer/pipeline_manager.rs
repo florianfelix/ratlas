@@ -2,7 +2,10 @@ use std::sync::Arc;
 
 use iced::wgpu;
 
-use crate::{app::app_state::gpu::Gpu, data::mesh::Vertex};
+use crate::{
+    app::app_state::gpu::Gpu,
+    data::{InstanceRaw, mesh::Vertex},
+};
 
 /// Encapsulates GPU pipeline resources and bind group layouts.
 /// Can be shared across materials and renderers.
@@ -10,12 +13,14 @@ use crate::{app::app_state::gpu::Gpu, data::mesh::Vertex};
 pub struct PipelineManager {
     pub transform_layout: Arc<wgpu::BindGroupLayout>,
     pub texture_layout: Arc<wgpu::BindGroupLayout>,
+    pub camera_layout: Arc<wgpu::BindGroupLayout>,
     pub default_pipeline: Arc<wgpu::RenderPipeline>,
+    pub instanced_pipeline: Arc<wgpu::RenderPipeline>,
 }
 
 impl PipelineManager {
     pub fn new(device: &wgpu::Device, surface_format: wgpu::TextureFormat) -> Self {
-        // 1. Uniform Bind Group Layout (slot 0: Model Matrix + Color Tint)
+        // 1. Uniform Bind Group Layout (slot 0: Model Matrix + Color Tint for default pipeline)
         let transform_layout = Arc::new(device.create_bind_group_layout(
             &wgpu::BindGroupLayoutDescriptor {
                 label: Some("Transform Bind Group Layout"),
@@ -57,30 +62,105 @@ impl PipelineManager {
             },
         ));
 
-        // 3. Render Pipeline
-        let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+        // 3. Camera Bind Group Layout (slot 0 for instanced pipeline: View-Projection matrix)
+        let camera_layout = Arc::new(device.create_bind_group_layout(
+            &wgpu::BindGroupLayoutDescriptor {
+                label: Some("Instanced Camera Bind Group Layout"),
+                entries: &[wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::VERTEX,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                }],
+            },
+        ));
+
+        // 4. Default Render Pipeline (single scene objects like Earth)
+        let default_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("Default Shader"),
             source: wgpu::ShaderSource::Wgsl(include_str!("../../../shaders/default.wgsl").into()),
         });
 
-        let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-            label: Some("Canvas Pipeline Layout"),
-            bind_group_layouts: &[&transform_layout, &texture_layout],
-            push_constant_ranges: &[],
-        });
+        let default_pipeline_layout =
+            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: Some("Canvas Default Pipeline Layout"),
+                bind_group_layouts: &[&transform_layout, &texture_layout],
+                push_constant_ranges: &[],
+            });
 
         let default_pipeline = Arc::new(device.create_render_pipeline(
             &wgpu::RenderPipelineDescriptor {
-                label: Some("Canvas Render Pipeline"),
-                layout: Some(&pipeline_layout),
+                label: Some("Canvas Default Render Pipeline"),
+                layout: Some(&default_pipeline_layout),
                 vertex: wgpu::VertexState {
-                    module: &shader,
+                    module: &default_shader,
                     entry_point: Some("vs_main"),
                     buffers: &[Vertex::desc()],
                     compilation_options: Default::default(),
                 },
                 fragment: Some(wgpu::FragmentState {
-                    module: &shader,
+                    module: &default_shader,
+                    entry_point: Some("fs_main"),
+                    targets: &[Some(wgpu::ColorTargetState {
+                        format: surface_format,
+                        blend: Some(wgpu::BlendState::ALPHA_BLENDING),
+                        write_mask: wgpu::ColorWrites::ALL,
+                    })],
+                    compilation_options: Default::default(),
+                }),
+                primitive: wgpu::PrimitiveState {
+                    topology: wgpu::PrimitiveTopology::TriangleList,
+                    strip_index_format: None,
+                    front_face: wgpu::FrontFace::Ccw,
+                    cull_mode: Some(wgpu::Face::Back),
+                    polygon_mode: wgpu::PolygonMode::Fill,
+                    unclipped_depth: false,
+                    conservative: false,
+                },
+                depth_stencil: Some(wgpu::DepthStencilState {
+                    format: Gpu::DEPTH_FORMAT,
+                    depth_write_enabled: true,
+                    depth_compare: wgpu::CompareFunction::Less,
+                    stencil: wgpu::StencilState::default(),
+                    bias: wgpu::DepthBiasState::default(),
+                }),
+                multisample: wgpu::MultisampleState::default(),
+                multiview: None,
+                cache: None,
+            },
+        ));
+
+        // 5. Instanced Render Pipeline (bulk station markers drawn in 1 call)
+        let instanced_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("Instanced Shader"),
+            source: wgpu::ShaderSource::Wgsl(
+                include_str!("../../../shaders/instanced.wgsl").into(),
+            ),
+        });
+
+        let instanced_pipeline_layout =
+            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: Some("Canvas Instanced Pipeline Layout"),
+                bind_group_layouts: &[&camera_layout, &texture_layout],
+                push_constant_ranges: &[],
+            });
+
+        let instanced_pipeline = Arc::new(device.create_render_pipeline(
+            &wgpu::RenderPipelineDescriptor {
+                label: Some("Canvas Instanced Render Pipeline"),
+                layout: Some(&instanced_pipeline_layout),
+                vertex: wgpu::VertexState {
+                    module: &instanced_shader,
+                    entry_point: Some("vs_main"),
+                    buffers: &[Vertex::desc(), InstanceRaw::desc()],
+                    compilation_options: Default::default(),
+                },
+                fragment: Some(wgpu::FragmentState {
+                    module: &instanced_shader,
                     entry_point: Some("fs_main"),
                     targets: &[Some(wgpu::ColorTargetState {
                         format: surface_format,
@@ -114,7 +194,9 @@ impl PipelineManager {
         Self {
             transform_layout,
             texture_layout,
+            camera_layout,
             default_pipeline,
+            instanced_pipeline,
         }
     }
 }

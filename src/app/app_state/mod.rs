@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use crate::{
     app::ui::Message,
-    data::{Effector, RenderObject},
+    data::{Effector, MarkerInstance, RenderObject},
 };
 
 pub mod camera;
@@ -57,12 +57,14 @@ impl std::fmt::Display for StationLimit {
 
 pub struct AppState {
     pub world: World,
+    #[allow(dead_code)]
     pub objects: HashMap<String, RenderObject>,
     pub camera: Camera,
     pub all_radio_stations: Vec<radiobrowser::ApiStation>,
     pub radio_stations: Vec<radiobrowser::ApiStation>,
     pub api_tags: Vec<radiobrowser::ApiTag>,
     pub station_limit: StationLimit,
+    pub marker_instances: Vec<MarkerInstance>,
     pub spatial_grid: GlobeSpatialGrid,
     pub hovered_station: Option<String>,  // stationuuid
     pub selected_station: Option<String>, // stationuuid
@@ -93,6 +95,7 @@ impl Default for AppState {
             radio_stations: Vec::new(),
             api_tags: Vec::new(),
             station_limit: StationLimit::default(),
+            marker_instances: Vec::new(),
             spatial_grid: GlobeSpatialGrid::default(),
             hovered_station: None,
             selected_station: None,
@@ -150,29 +153,18 @@ impl AppState {
             None => self.all_radio_stations.clone(),
         };
 
-        // 1. Remove old station markers from world and clear spatial grid
-        self.world.remove_by_tag("station_marker");
+        // 1. Clear previous marker instances and spatial grid
+        self.marker_instances.clear();
         self.spatial_grid.clear();
 
-        // 2. Look up preloaded marker template
-        let Some(marker_template) = self
-            .objects
-            .get("marker")
-            .or_else(|| self.objects.get("marker.obj"))
-        else {
-            tracing::warn!("Marker template not found in AppState.objects");
-            return;
-        };
-
-        // 3. Create new station markers from stations and position on sphere
+        // 2. Create new marker instances from stations and position on sphere
         // Slightly elevated (1.002) to prevent polygon z-fighting with the globe surface
         let sphere_radius = 1.002_f32;
         let marker_scale = glam::Vec3::splat(0.06);
 
-        let base_world_index = self.world.objects.len();
-        let mut new_markers = Vec::with_capacity(self.radio_stations.len());
+        self.marker_instances.reserve(self.radio_stations.len());
 
-        for (i, station) in self.radio_stations.iter().enumerate() {
+        for station in &self.radio_stations {
             let (Some(lat), Some(lon)) = (station.geo_lat, station.geo_long) else {
                 continue;
             };
@@ -183,28 +175,26 @@ impl AppState {
             // Orient marker so local +Y points away from sphere center (along normal)
             let rotation = glam::Quat::from_rotation_arc(glam::Vec3::Y, normal);
 
-            let marker = marker_template
-                .create_instance()
-                .with_name(&station.name)
-                .with_tag("station_marker")
-                .with_id(&station.stationuuid)
-                .with_transform(position, rotation, marker_scale);
-
-            new_markers.push(marker);
+            let instance_index = self.marker_instances.len();
+            let marker = MarkerInstance::new(
+                &station.stationuuid,
+                &station.name,
+                position,
+                rotation,
+                marker_scale,
+            );
+            self.marker_instances.push(marker);
 
             self.spatial_grid.insert(SpatialStation {
                 uuid: station.stationuuid.clone(),
                 position,
                 lat: lat as f32,
                 lon: lon as f32,
-                world_index: base_world_index + i,
+                instance_index,
             });
         }
 
-        // 4. Add new markers to world
-        self.world.add_objects(new_markers);
-
-        // 5. Apply effectors (camera proximity, mouse lens, hover/selection)
+        // 3. Apply effectors (camera proximity, mouse lens, hover/selection)
         self.apply_effectors();
     }
 
@@ -243,30 +233,28 @@ impl AppState {
             .iter()
             .find(|e| e.name == "CameraProximityEffector");
 
-        for obj in &mut self.world.objects {
-            if obj.tag == "station_marker" {
-                // Horizon / Backface Culling:
-                // Test if the marker's outward normal is facing the camera.
-                // For a sphere centered at origin, obj.position points along outward normal.
-                // to_cam = cam_pos - obj.position. If obj.position.dot(to_cam) <= margin,
-                // the marker is behind the horizon of the Earth sphere.
-                let to_cam = cam_pos - obj.position;
-                let is_visible = obj.position.dot(to_cam) > HORIZON_CULL_MARGIN;
-                obj.visible = is_visible;
+        for marker in &mut self.marker_instances {
+            // Horizon / Backface Culling:
+            // Test if the marker's outward normal is facing the camera.
+            // For a sphere centered at origin, marker.position points along outward normal.
+            // to_cam = cam_pos - marker.position. If marker.position.dot(to_cam) <= margin,
+            // the marker is behind the horizon of the Earth sphere.
+            let to_cam = cam_pos - marker.position;
+            let is_visible = marker.position.dot(to_cam) > HORIZON_CULL_MARGIN;
+            marker.visible = is_visible;
 
-                if !is_visible {
-                    continue;
-                }
-
-                let mut current_scale = obj.base_scale;
-                if let Some(cam_eff) = cam_eff_opt {
-                    let (scale_mult, _) = cam_eff.evaluate(obj.position);
-                    current_scale *= scale_mult;
-                }
-
-                obj.scale = current_scale;
-                obj.color_tint = glam::Vec4::ONE;
+            if !is_visible {
+                continue;
             }
+
+            let mut current_scale = marker.base_scale;
+            if let Some(cam_eff) = cam_eff_opt {
+                let (scale_mult, _) = cam_eff.evaluate(marker.position);
+                current_scale *= scale_mult;
+            }
+
+            marker.scale = current_scale;
+            marker.color_tint = glam::Vec4::ONE;
         }
 
         // Mouse Globe Lens: only evaluate the few stations within spatial grid radius
@@ -276,13 +264,13 @@ impl AppState {
                     if let Some(radius) = lens_eff.radius() {
                         let nearby = self.spatial_grid.query_radius(globe_pos, radius);
                         for station in nearby {
-                            if station.world_index < self.world.objects.len() {
-                                let obj = &mut self.world.objects[station.world_index];
-                                if obj.visible {
-                                    let (scale_mult, tint_opt) = lens_eff.evaluate(obj.position);
-                                    obj.scale *= scale_mult;
+                            if station.instance_index < self.marker_instances.len() {
+                                let marker = &mut self.marker_instances[station.instance_index];
+                                if marker.visible {
+                                    let (scale_mult, tint_opt) = lens_eff.evaluate(marker.position);
+                                    marker.scale *= scale_mult;
                                     if let Some(t) = tint_opt {
-                                        obj.color_tint += t;
+                                        marker.color_tint += t;
                                     }
                                 }
                             }
@@ -294,19 +282,19 @@ impl AppState {
 
         // Apply hover and selection highlights
         if let Some(ref hovered_id) = self.hovered_station {
-            for obj in &mut self.world.objects {
-                if obj.id.as_deref() == Some(hovered_id) {
-                    obj.scale *= 1.25;
-                    obj.color_tint *= glam::Vec4::new(0.7, 1.3, 1.5, 1.0);
+            for marker in &mut self.marker_instances {
+                if &marker.id == hovered_id {
+                    marker.scale *= 1.25;
+                    marker.color_tint *= glam::Vec4::new(0.7, 1.3, 1.5, 1.0);
                     break;
                 }
             }
         }
         if let Some(ref selected_id) = self.selected_station {
-            for obj in &mut self.world.objects {
-                if obj.id.as_deref() == Some(selected_id) {
-                    obj.scale *= 1.15;
-                    obj.color_tint *= glam::Vec4::new(1.3, 1.1, 0.4, 1.0);
+            for marker in &mut self.marker_instances {
+                if &marker.id == selected_id {
+                    marker.scale *= 1.15;
+                    marker.color_tint *= glam::Vec4::new(1.3, 1.1, 0.4, 1.0);
                     break;
                 }
             }
@@ -396,10 +384,12 @@ impl World {
         self.objects.push(object);
     }
 
+    #[allow(dead_code)]
     pub fn add_objects(&mut self, objects: impl IntoIterator<Item = RenderObject>) {
         self.objects.extend(objects);
     }
 
+    #[allow(dead_code)]
     pub fn remove_by_tag(&mut self, tag: &str) {
         self.objects.retain(|obj| obj.tag != tag);
     }
@@ -558,18 +548,22 @@ mod tests {
         state.update_station_markers(stations);
         assert_eq!(state.all_radio_stations.len(), 3000);
         assert_eq!(state.radio_stations.len(), 1000);
+        assert_eq!(state.marker_instances.len(), 1000);
 
         // Change limit to 500
         state.set_station_limit(StationLimit::Limit500);
         assert_eq!(state.radio_stations.len(), 500);
+        assert_eq!(state.marker_instances.len(), 500);
 
         // Change limit to 2500
         state.set_station_limit(StationLimit::Limit2500);
         assert_eq!(state.radio_stations.len(), 2500);
+        assert_eq!(state.marker_instances.len(), 2500);
 
         // Change limit to All
         state.set_station_limit(StationLimit::All);
         assert_eq!(state.radio_stations.len(), 3000);
+        assert_eq!(state.marker_instances.len(), 3000);
 
         // Find station should still find stations outside the current active slice
         state.set_station_limit(StationLimit::Limit500);
@@ -601,5 +595,31 @@ mod tests {
             !is_side_visible,
             "Side marker at 90 deg from 3.0 units away is behind horizon"
         );
+    }
+
+    #[test]
+    fn test_marker_instances_effectors_and_picking() {
+        let mut state = AppState::default();
+        let mut s1 = dummy_station("s1", "Station One");
+        s1.geo_lat = Some(0.0);
+        s1.geo_long = Some(0.0); // Facing along +X (1.002, 0, 0)
+        let mut s2 = dummy_station("s2", "Station Two");
+        s2.geo_lat = Some(0.0);
+        s2.geo_long = Some(180.0); // Backside along -X (-1.002, 0, 0)
+
+        state.update_station_markers(vec![s1, s2]);
+        assert_eq!(state.marker_instances.len(), 2);
+
+        // Position camera at (3.0, 0, 0) facing origin
+        state.camera.position = glam::Vec3::new(3.0, 0.0, 0.0);
+        state.apply_effectors();
+
+        // Front marker (s1) should be visible, s2 should be culled
+        assert!(state.marker_instances[0].visible);
+        assert!(!state.marker_instances[1].visible);
+
+        // Hover over s1
+        state.set_hovered_station(Some("s1".to_string()));
+        assert!(state.marker_instances[0].color_tint.y > 1.0); // Highlighted tint
     }
 }

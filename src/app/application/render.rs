@@ -22,9 +22,14 @@ pub fn render_frame(
         return;
     }
 
-    // 1. Update 3D viewport canvas with camera and world objects
+    // 1. Update 3D viewport canvas with camera, world objects, and instanced markers
     let aspect_ratio = physical_size.width as f32 / physical_size.height as f32;
-    canvas_renderer.update(&state.camera, &state.world.objects, aspect_ratio);
+    canvas_renderer.update(
+        &state.camera,
+        &state.world.objects,
+        &state.marker_instances,
+        aspect_ratio,
+    );
 
     // 2. Render scene from AppState world + UI overlay
     let surface_format = gpu.surface_config.format;

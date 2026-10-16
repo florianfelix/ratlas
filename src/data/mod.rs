@@ -76,6 +76,91 @@ pub struct TransformUniform {
     pub color_tint: [f32; 4],
 }
 
+#[repr(C)]
+#[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct CameraUniform {
+    pub view_proj: [[f32; 4]; 4],
+}
+
+#[repr(C)]
+#[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct InstanceRaw {
+    pub model_matrix: [[f32; 4]; 4],
+    pub color_tint: [f32; 4],
+}
+
+impl InstanceRaw {
+    const ATTRIBUTES: [wgpu::VertexAttribute; 5] = [
+        wgpu::VertexAttribute {
+            offset: 0,
+            shader_location: 5,
+            format: wgpu::VertexFormat::Float32x4,
+        },
+        wgpu::VertexAttribute {
+            offset: 16,
+            shader_location: 6,
+            format: wgpu::VertexFormat::Float32x4,
+        },
+        wgpu::VertexAttribute {
+            offset: 32,
+            shader_location: 7,
+            format: wgpu::VertexFormat::Float32x4,
+        },
+        wgpu::VertexAttribute {
+            offset: 48,
+            shader_location: 8,
+            format: wgpu::VertexFormat::Float32x4,
+        },
+        wgpu::VertexAttribute {
+            offset: 64,
+            shader_location: 9,
+            format: wgpu::VertexFormat::Float32x4,
+        },
+    ];
+
+    pub fn desc() -> wgpu::VertexBufferLayout<'static> {
+        wgpu::VertexBufferLayout {
+            array_stride: std::mem::size_of::<InstanceRaw>() as wgpu::BufferAddress,
+            step_mode: wgpu::VertexStepMode::Instance,
+            attributes: &Self::ATTRIBUTES,
+        }
+    }
+}
+
+/// Lightweight CPU representation of an instanced marker on the globe.
+#[derive(Debug, Clone)]
+pub struct MarkerInstance {
+    pub id: String,
+    pub name: String,
+    pub position: glam::Vec3,
+    pub rotation: glam::Quat,
+    pub scale: glam::Vec3,
+    pub base_scale: glam::Vec3,
+    pub color_tint: glam::Vec4,
+    pub visible: bool,
+}
+
+impl MarkerInstance {
+    pub fn new(
+        id: impl Into<String>,
+        name: impl Into<String>,
+        position: glam::Vec3,
+        rotation: glam::Quat,
+        scale: glam::Vec3,
+    ) -> Self {
+        Self {
+            id: id.into(),
+            name: name.into(),
+            position,
+            rotation,
+            scale,
+            base_scale: scale,
+            color_tint: glam::Vec4::ONE,
+            visible: true,
+        }
+    }
+}
+
 impl RenderObject {
     pub fn new(
         name: impl Into<String>,

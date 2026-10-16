@@ -6,7 +6,7 @@ pub struct SpatialStation {
     pub position: Vec3,
     pub lat: f32,
     pub lon: f32,
-    pub world_index: usize,
+    pub instance_index: usize,
 }
 
 #[derive(Debug, Clone)]
@@ -218,7 +218,7 @@ mod tests {
             position: paris_pos,
             lat: 48.85,
             lon: 2.35,
-            world_index: 0,
+            instance_index: 0,
         });
 
         // Insert a station in London (51.5, -0.12)
@@ -228,7 +228,7 @@ mod tests {
             position: london_pos,
             lat: 51.5,
             lon: -0.12,
-            world_index: 1,
+            instance_index: 1,
         });
 
         // Insert a station in Tokyo (35.67, 139.65)
@@ -238,7 +238,7 @@ mod tests {
             position: tokyo_pos,
             lat: 35.67,
             lon: 139.65,
-            world_index: 2,
+            instance_index: 2,
         });
 
         // Query close to Paris within radius 0.05
@@ -267,7 +267,7 @@ mod tests {
             position: pos_w,
             lat: 0.0,
             lon: 179.0,
-            world_index: 0,
+            instance_index: 0,
         });
 
         // Station just east of antimeridian (lat 0, lon -179)
@@ -277,7 +277,7 @@ mod tests {
             position: pos_e,
             lat: 0.0,
             lon: -179.0,
-            world_index: 1,
+            instance_index: 1,
         });
 
         // Query right at antimeridian (lat 0, lon 180)
