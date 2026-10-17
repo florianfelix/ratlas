@@ -81,3 +81,42 @@ appimage:
 # Run the packaged AppImage
 run-appimage: appimage
     ./target/Ratlas-x86_64.AppImage
+
+# Build release Windows binary and package into a zip archive
+windows-zip:
+    #!/usr/bin/env bash
+    set -euo pipefail
+
+    echo "==> Building Windows release binary (x86_64-pc-windows-gnu)..."
+    cargo build --release --target x86_64-pc-windows-gnu
+
+    DIST_DIR="target/windows-package/ratlas"
+    OUTPUT_ZIP="$(pwd)/target/Ratlas-Windows-x86_64.zip"
+
+    echo "==> Preparing Windows distribution folder at ${DIST_DIR}..."
+    rm -rf "${DIST_DIR}"
+    mkdir -p "${DIST_DIR}"
+
+    cp "target/x86_64-pc-windows-gnu/release/ratlas.exe" "${DIST_DIR}/ratlas.exe"
+
+    if [ -d "assets" ]; then
+        cp -r "assets" "${DIST_DIR}/"
+    fi
+
+    echo "==> Creating ${OUTPUT_ZIP}..."
+    rm -f "${OUTPUT_ZIP}"
+    (
+        cd target/windows-package
+        if command -v bsdtar >/dev/null 2>&1; then
+            bsdtar -a -cf "${OUTPUT_ZIP}" ratlas
+        elif command -v zip >/dev/null 2>&1; then
+            zip -r "${OUTPUT_ZIP}" ratlas
+        else
+            python3 -c "import shutil; shutil.make_archive('${OUTPUT_ZIP%.zip}', 'zip', '.', 'ratlas')"
+        fi
+    )
+
+    echo "==> Successfully packaged Windows zip: ${OUTPUT_ZIP}"
+
+# Alias for windows-zip
+package-windows: windows-zip

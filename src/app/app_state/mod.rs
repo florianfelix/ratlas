@@ -77,10 +77,10 @@ impl StationFilter {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum StationLimit {
     Limit500,
+    #[default]
     Limit1000,
     Limit2500,
     Limit5000,
-    #[default]
     All,
 }
 

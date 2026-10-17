@@ -97,7 +97,10 @@ impl ApplicationHandler<ProxyMessage> for Ratlas {
             let canvas_renderer = CanvasRenderer::new(gpu.clone());
 
             // Build system tray icon and context menu
-            let tray = TrayManager::new().expect("failed to create tray icon");
+            let tray = TrayManager::new().unwrap_or_else(|e| {
+                tracing::warn!("Failed to initialize system tray icon: {e}");
+                TrayManager::empty()
+            });
 
             // Create initial world in AppState and load default sphere object
             let mut state = AppState::default();

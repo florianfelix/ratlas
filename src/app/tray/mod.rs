@@ -70,6 +70,15 @@ impl TrayManager {
         })
     }
 
+    /// Creates an empty TrayManager fallback when system tray creation is not available.
+    pub fn empty() -> Self {
+        Self {
+            _tray_icon: None,
+            toggle_id: MenuId::new(""),
+            quit_id: MenuId::new(""),
+        }
+    }
+
     /// Registers global event handlers for TrayIconEvent and MenuEvent to forward
     /// them asynchronously to the Winit event loop proxy.
     pub fn init_event_handlers<T>(
@@ -91,7 +100,7 @@ impl TrayManager {
     }
 
     /// Maps a TrayIconEvent to a corresponding TrayAction.
-    /// Returns `Some(TrayAction::ToggleWindow)` when left-clicked.
+    /// Returns `Some(TrayAction::ToggleWindow)` when clicked or double-clicked.
     pub fn handle_tray_event(&self, event: &TrayIconEvent) -> Option<TrayAction> {
         match event {
             TrayIconEvent::Click {
@@ -106,6 +115,10 @@ impl TrayManager {
                     None
                 }
             }
+            TrayIconEvent::DoubleClick {
+                button: MouseButton::Left,
+                ..
+            } => Some(TrayAction::ToggleWindow),
             _ => None,
         }
     }
@@ -128,46 +141,70 @@ mod tests {
 
     #[test]
     fn test_embedded_icon_decodes() {
-        assert!(load_tray_icon().is_some());
-        assert!(load_window_icon().is_some());
+        let img = image::load_from_memory(APP_ICON_BYTES).expect("embedded icon should decode");
+        assert!(img.width() > 0);
+        assert!(img.height() > 0);
     }
 
     #[test]
     fn test_tray_action_matching() {
-        let item1 = MenuItem::new("Show / Hide Ratlas", true, None);
-        let item2 = MenuItem::new("Quit Ratlas", true, None);
         let manager = TrayManager {
             _tray_icon: None,
-            toggle_id: item1.id().clone(),
-            quit_id: item2.id().clone(),
+            toggle_id: MenuId::new("toggle"),
+            quit_id: MenuId::new("quit"),
         };
 
-        assert_eq!(
-            manager.handle_menu_event(&MenuEvent {
-                id: item1.id().clone()
-            }),
-            Some(TrayAction::ToggleWindow)
-        );
-        assert_eq!(
-            manager.handle_menu_event(&MenuEvent {
-                id: item2.id().clone()
-            }),
-            Some(TrayAction::Quit)
-        );
-
+        // Left click Up -> ToggleWindow
         let click_event = TrayIconEvent::Click {
             id: tray_icon::TrayIconId::new("test"),
             position: tray_icon::dpi::PhysicalPosition::new(0.0, 0.0),
-            rect: tray_icon::Rect {
-                position: tray_icon::dpi::PhysicalPosition::new(0.0, 0.0),
-                size: tray_icon::dpi::PhysicalSize::new(0, 0),
-            },
+            rect: tray_icon::Rect::default(),
             button: MouseButton::Left,
             button_state: MouseButtonState::Up,
         };
         assert_eq!(
             manager.handle_tray_event(&click_event),
             Some(TrayAction::ToggleWindow)
+        );
+
+        // Double click -> ToggleWindow
+        let dbl_click_event = TrayIconEvent::DoubleClick {
+            id: tray_icon::TrayIconId::new("test"),
+            position: tray_icon::dpi::PhysicalPosition::new(0.0, 0.0),
+            rect: tray_icon::Rect::default(),
+            button: MouseButton::Left,
+        };
+        assert_eq!(
+            manager.handle_tray_event(&dbl_click_event),
+            Some(TrayAction::ToggleWindow)
+        );
+
+        // Right click -> None
+        let right_click = TrayIconEvent::Click {
+            id: tray_icon::TrayIconId::new("test"),
+            position: tray_icon::dpi::PhysicalPosition::new(0.0, 0.0),
+            rect: tray_icon::Rect::default(),
+            button: MouseButton::Right,
+            button_state: MouseButtonState::Up,
+        };
+        assert_eq!(manager.handle_tray_event(&right_click), None);
+
+        // Menu Toggle -> ToggleWindow
+        let menu_toggle = MenuEvent {
+            id: MenuId::new("toggle"),
+        };
+        assert_eq!(
+            manager.handle_menu_event(&menu_toggle),
+            Some(TrayAction::ToggleWindow)
+        );
+
+        // Menu Quit -> Quit
+        let menu_quit = MenuEvent {
+            id: MenuId::new("quit"),
+        };
+        assert_eq!(
+            manager.handle_menu_event(&menu_quit),
+            Some(TrayAction::Quit)
         );
     }
 }
