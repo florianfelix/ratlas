@@ -28,6 +28,10 @@ pub struct CanvasRenderer {
 }
 
 impl CanvasRenderer {
+    /// Maximum capacity of the instanced marker GPU buffer (65,536 instances = ~5.2 MB VRAM).
+    /// Comfortably accommodates the entire worldwide radio-browser station catalog.
+    pub const MAX_INSTANCES: usize = 65_536;
+
     pub fn new(gpu: Gpu) -> Self {
         let pipelines = PipelineManager::new(&gpu.device, gpu.surface_config.format);
 
@@ -49,11 +53,10 @@ impl CanvasRenderer {
         });
 
         // 2. Dynamic GPU Instance Buffer (slot 1 vertex buffer: Model Matrix + Color Tint per instance)
-        // Pre-allocated for up to 10,000 active markers
-        const MAX_INSTANCES: usize = 10_000;
+        // Pre-allocated for up to 65,536 active markers (~5.2 MB VRAM)
         let instance_buffer = gpu.device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("Instanced Marker GPU Buffer"),
-            size: (MAX_INSTANCES * std::mem::size_of::<InstanceRaw>()) as u64,
+            size: (Self::MAX_INSTANCES * std::mem::size_of::<InstanceRaw>()) as u64,
             usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
@@ -127,6 +130,16 @@ impl CanvasRenderer {
                 model_matrix: model.to_cols_array_2d(),
                 color_tint: instance.color_tint.to_array(),
             });
+        }
+
+        // Clamp to buffer capacity to strictly prevent GPU buffer overrun
+        if raw_data.len() > Self::MAX_INSTANCES {
+            tracing::warn!(
+                "Visible marker count ({}) exceeds GPU instance buffer capacity ({}), clamping",
+                raw_data.len(),
+                Self::MAX_INSTANCES
+            );
+            raw_data.truncate(Self::MAX_INSTANCES);
         }
 
         if !raw_data.is_empty() {
