@@ -34,6 +34,8 @@ rodio = "0.23.0"
 tray-icon = { version = "0.26.1", default-features = false, features = ["ksni"] }
 isocountry = "0.3.2"
 fuzzy-matcher = "0.3.7"
+rusty-opus = "1.0.2"
+ogg = "0.9.2"
 
 
 [profile.release]

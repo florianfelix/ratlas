@@ -6,6 +6,7 @@ use winit::event_loop::EventLoopProxy;
 
 use super::adts::{AdtsNormalizer, find_first_adts_frame, is_adts_stream};
 use super::playlist::parse_playlist_target;
+use super::opus::OpusSource;
 use super::reader::ChannelReader;
 use super::types::{PlaybackMessage, PlaybackStatus};
 use crate::app::application::ProxyMessage;
@@ -330,6 +331,9 @@ impl PlaybackWorker {
             if lower_url.contains(".aac") || lower_url.contains("/aac") {
                 hint = Some("aac");
                 mime = Some("audio/aac");
+            } else if lower_url.contains(".opus") || lower_url.contains("/opus") {
+                hint = Some("opus");
+                mime = Some("audio/opus");
             } else if lower_url.contains(".mp3") || lower_url.contains("/mp3") {
                 hint = Some("mp3");
                 mime = Some("audio/mpeg");
@@ -389,7 +393,9 @@ impl PlaybackWorker {
             None
         };
 
-        let is_opus = prebuffer.windows(8).any(|w| w == b"OpusHead");
+        let is_opus = hint == Some("opus")
+            || mime.is_some_and(|m| m.contains("opus"))
+            || prebuffer.windows(8).any(|w| w == b"OpusHead");
 
         // Bounded channel connects async network streamer to blocking Rodio mixer decoder
         let (tx_chunks, rx_chunks) = crossbeam_channel::bounded::<Vec<u8>>(128);
@@ -439,7 +445,35 @@ impl PlaybackWorker {
         let reader =
             ChannelReader::new(rx_chunks, stop_flag.clone(), is_probing.clone(), 64 * 1024);
 
-        // Configure decoder builder with format hints
+        // If the stream is Opus, decode via our pure-Rust OpusSource
+        if is_opus {
+            match OpusSource::new(reader) {
+                Ok(source) => {
+                    is_probing.store(false, Ordering::SeqCst);
+
+                    if let Some(player) = &self.player {
+                        player.clear();
+                        player.set_volume(self.current_volume);
+                        player.append(source);
+                        player.play();
+
+                        self.update_status(PlaybackStatus::Playing {
+                            url: url.clone(),
+                            name: name.clone(),
+                        });
+                        tracing::info!("Now playing (Ogg Opus): '{}'", name);
+                    }
+                }
+                Err(e) => {
+                    let err_msg = format!("Opus decoder error: {e}");
+                    tracing::error!("{err_msg}");
+                    self.update_status(PlaybackStatus::Error { message: err_msg });
+                }
+            }
+            return;
+        }
+
+        // Configure decoder builder with format hints for Rodio/Symphonia formats (Vorbis, MP3, AAC, FLAC)
         let mut builder = rodio::Decoder::builder()
             .with_data(reader)
             .with_seekable(false);
