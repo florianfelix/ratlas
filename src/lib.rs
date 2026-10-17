@@ -3,7 +3,8 @@
     clippy::single_match,
     clippy::collapsible_if,
     clippy::unnecessary_map_or,
-    clippy::field_reassign_with_default
+    clippy::field_reassign_with_default,
+    clippy::useless_format
 )]
 
 use tracing::info;

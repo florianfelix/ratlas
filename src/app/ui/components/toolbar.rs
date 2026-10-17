@@ -3,6 +3,7 @@ use crate::app::{
     ui::{Element, Message, UiState},
 };
 use fuzzy_matcher::{FuzzyMatcher, skim::SkimMatcherV2};
+#[allow(unused)]
 use iced::{
     Length,
     widget::{button, column, container, pick_list, row, text, text_input},
@@ -74,17 +75,20 @@ pub fn search_tags<'a>(
     matches
 }
 
-pub fn toolbar<'a>(state: &'a UiState) -> Element<'a> {
-    let mut left_controls = row![
-        text("Stations:").size(12).align_y(iced::Alignment::Center),
-        pick_list(
-            &StationLimit::ALL[..],
-            Some(state.station_limit),
-            Message::SetStationLimit,
-        )
-        .text_size(12)
-        .padding([3, 8]),
-        text("Country:").size(12).align_y(iced::Alignment::Center),
+fn wdgt_station_limit<'a>(state: &'a UiState) -> Element<'a> {
+    pick_list(
+        &StationLimit::ALL[..],
+        Some(state.station_limit),
+        Message::SetStationLimit,
+    )
+    .text_size(12)
+    .padding([3, 8])
+    .into()
+}
+
+fn wdgt_country_select<'a>(state: &'a UiState) -> Element<'a> {
+    let mut wdgt = row![
+        // text("Country:").size(12).align_y(iced::Alignment::Center),
         pick_list(
             isocountry::CountryCode::as_array().as_slice(),
             state.station_filter.country_code,
@@ -99,34 +103,36 @@ pub fn toolbar<'a>(state: &'a UiState) -> Element<'a> {
         )
         .placeholder("All Countries")
         .text_size(12)
-        .padding([3, 8]),
-    ]
-    .spacing(8)
-    .align_y(iced::Alignment::Center);
-
+        .padding([3, 8])
+        .width(200.0),
+    ];
     if state.station_filter.country_code.is_some() {
         let mut clear_filter = state.station_filter.clone();
         clear_filter.country_code = None;
-        left_controls = left_controls.push(
+        wdgt = wdgt.push(
             button(text("✕").size(10).align_y(iced::Alignment::Center))
                 .padding([3, 6])
                 .on_press(Message::StationFilterChanged(clear_filter)),
         );
     }
 
-    if state.total_stations_count > 0 {
-        let count_str = format!(
-            "({} / {})",
-            state.displayed_stations_count, state.total_stations_count
-        );
-        left_controls =
-            left_controls.push(text(count_str).size(11).align_y(iced::Alignment::Center));
-    }
+    wdgt.into()
+}
 
-    // Tag filter section
-    left_controls = left_controls.push(text("Tags:").size(12).align_y(iced::Alignment::Center));
+fn wdgt_display_station_count<'a>(state: &'a UiState) -> Element<'a> {
+    let count_str = format!(
+        "({} / {})",
+        state.displayed_stations_count, state.total_stations_count
+    );
+    text(count_str)
+        .size(11)
+        .align_y(iced::Alignment::Center)
+        .into()
+}
 
-    // Logical AND / OR toggle when tag filter is active
+pub fn wdgt_tag_selected<'a>(state: &'a UiState) -> Element<'a> {
+    let mut wdgt = column![].spacing(8.0);
+
     if !state.station_filter.tags.is_empty() {
         let and_btn = button(text("AND").size(10).align_y(iced::Alignment::Center))
             .padding([2, 5])
@@ -149,34 +155,41 @@ pub fn toolbar<'a>(state: &'a UiState) -> Element<'a> {
             .on_press(Message::SetTagMatchMode(TagMatchMode::Or));
 
         let mode_group = row![and_btn, or_btn]
-            .spacing(2)
+            .spacing(10)
             .align_y(iced::Alignment::Center);
 
-        left_controls = left_controls.push(mode_group);
+        wdgt = wdgt.push(mode_group);
     }
 
-    // Active tag chips with remove button
+    let mut chips = row![].spacing(4.0);
     for tag in &state.station_filter.tags {
         let chip = button(
             row![
                 text(tag.clone()).size(11).align_y(iced::Alignment::Center),
                 text("✕").size(9).align_y(iced::Alignment::Center),
             ]
-            .spacing(4)
+            .spacing(10)
             .align_y(iced::Alignment::Center),
         )
         .padding([2, 6])
         .on_press(Message::RemoveTagFilter(tag.clone()));
 
-        left_controls = left_controls.push(chip);
+        chips = chips.push(chip);
     }
+    wdgt = wdgt.push(chips.wrap());
+
+    wdgt.into()
+}
+
+fn wdgt_tag_selector<'a>(state: &'a UiState) -> Element<'a> {
+    let mut wdgt = row![text("Tags:").size(12).align_y(iced::Alignment::Center),];
 
     // Tag fuzzy suggestions computation
     let suggestions = search_tags(
         &state.tag_search_query,
         &state.api_tags,
         &state.station_filter.tags,
-        7,
+        5,
     );
 
     // Tag search text input
@@ -194,58 +207,43 @@ pub fn toolbar<'a>(state: &'a UiState) -> Element<'a> {
         ));
     }
 
-    left_controls = left_controls.push(search_input);
+    wdgt = wdgt.push(search_input);
 
     if !state.tag_search_query.is_empty() {
-        left_controls = left_controls.push(
+        wdgt = wdgt.push(
             button(text("✕").size(10).align_y(iced::Alignment::Center))
                 .padding([3, 6])
+                .style(button::warning)
                 .on_press(Message::TagSearchInputChanged(String::new())),
         );
     }
 
-    let mut main_row = row![left_controls]
-        .spacing(12)
-        .align_y(iced::Alignment::Center)
-        .width(Length::Fill);
+    let mut suggestions_row = row![].spacing(6).align_y(iced::Alignment::Center);
 
-    if let Some(hovered) = &state.hovered_station_name {
-        main_row = main_row.push(container(row![]).width(Length::Fill)).push(
-            container(
-                text(format!("{:.60}", hovered))
-                    .size(13)
-                    .align_y(iced::Alignment::Center),
-            )
-            .padding(2),
+    for (tag, _score) in &suggestions {
+        let label = format!("{} ({})", tag.name, format_count(tag.stationcount));
+        suggestions_row = suggestions_row.push(
+            button(text(label).size(11).align_y(iced::Alignment::Center))
+                .padding([2, 6])
+                .on_press(Message::AddTagFilter(tag.name.clone())),
         );
     }
 
-    let content = if !suggestions.is_empty() {
-        let mut suggestions_row = row![
-            text("Suggestions:")
-                .size(11)
-                .align_y(iced::Alignment::Center),
-        ]
-        .spacing(6)
-        .align_y(iced::Alignment::Center);
+    wdgt = wdgt.push(suggestions_row.wrap());
+    wdgt.into()
+}
 
-        for (tag, _score) in &suggestions {
-            let label = format!("{} ({})", tag.name, format_count(tag.stationcount));
-            suggestions_row = suggestions_row.push(
-                button(text(label).size(11).align_y(iced::Alignment::Center))
-                    .padding([2, 6])
-                    .on_press(Message::AddTagFilter(tag.name.clone())),
-            );
-        }
+pub fn toolbar<'a>(state: &'a UiState) -> Element<'a> {
+    let left_controls = row![
+        wdgt_station_limit(state),
+        wdgt_display_station_count(state),
+        wdgt_country_select(state),
+        wdgt_tag_selector(state)
+    ]
+    .spacing(8)
+    .align_y(iced::Alignment::Center);
 
-        column![main_row, suggestions_row]
-            .spacing(6)
-            .width(Length::Fill)
-    } else {
-        column![main_row].width(Length::Fill)
-    };
-
-    container(content)
+    container(left_controls)
         .style(container::bordered_box)
         .width(Length::Fill)
         .padding(6)
