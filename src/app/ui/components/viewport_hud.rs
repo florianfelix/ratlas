@@ -7,39 +7,15 @@ use crate::app::ui::{
 };
 
 pub fn viewport_hud<'a>(state: &'a UiState) -> Element<'a> {
-    let mut parent = column![
-        container(wdgt_tag_selector(state),)
-            .padding(6)
-            .style(container::rounded_box),
-    ];
+    let mut parent = column![];
 
-    let selected_tags = column![
-        wdgt_tag_selected(state),
-        // wdgt_hovered_station(state),
-    ]
-    .spacing(4)
-    .width(260.0);
+    let boxed_selected = container(wdgt_tag_selected(state)).max_width(260.0);
 
-    let selected_tags = container(selected_tags)
+    parent = parent.push(wdgt_tag_selector(state));
+    parent = parent.push(boxed_selected);
+
+    container(parent)
+        .padding(6)
         .style(container::rounded_box)
-        .padding(6);
-
-    parent = parent.push(selected_tags);
-    container(parent).into()
-}
-
-fn wdgt_hovered_station<'a>(state: &'a UiState) -> Element<'a> {
-    let mut wdgt = row![];
-    if let Some(hovered) = &state.hovered_station_name {
-        wdgt = wdgt.push(container(row![])).push(
-            container(
-                text(format!("{:}", hovered))
-                    .size(13)
-                    .align_y(iced::Alignment::Start),
-            )
-            .padding(2),
-        );
-    }
-
-    wdgt.into()
+        .into()
 }

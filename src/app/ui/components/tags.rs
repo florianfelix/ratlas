@@ -1,7 +1,7 @@
 use fuzzy_matcher::{FuzzyMatcher, skim::SkimMatcherV2};
 use iced::{
     Length,
-    widget::{button, column, row, text, text_input},
+    widget::{button, column, row, space, text, text_input},
 };
 
 use crate::app::{
@@ -37,7 +37,9 @@ pub fn wdgt_tag_selected<'a>(state: &'a UiState) -> Element<'a> {
             .spacing(10)
             .align_y(iced::Alignment::Center);
 
+        wdgt = wdgt.push(space::vertical().height(4));
         wdgt = wdgt.push(mode_group);
+        wdgt = wdgt.push(space::vertical().height(4));
     }
 
     let mut chips = row![].spacing(4.0);

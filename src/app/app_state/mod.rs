@@ -64,7 +64,7 @@ pub struct EarthConfig {
 impl Default for EarthConfig {
     fn default() -> Self {
         Self {
-            show_country_outlines: true,
+            show_country_outlines: false,
             outline_color: glam::Vec4::new(0.2, 0.8, 1.0, 0.85),
             base_texture: EarthBaseTexture::default(),
         }

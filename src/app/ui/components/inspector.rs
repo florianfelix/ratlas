@@ -66,9 +66,27 @@ pub fn inspector<'a>(state: &'a UiState) -> Element<'a> {
         }
     }
 
+    content = content.push(wdgt_hovered_station(state));
+
     container(content)
         .style(container::bordered_box)
         .width(210)
         .padding(12)
         .into()
+}
+
+fn wdgt_hovered_station<'a>(state: &'a UiState) -> Element<'a> {
+    let mut wdgt = row![];
+    if let Some(hovered) = &state.hovered_station_name {
+        wdgt = wdgt.push(container(row![])).push(
+            container(
+                text(format!("{:}", hovered))
+                    .size(13)
+                    .align_y(iced::Alignment::Start),
+            )
+            .padding(2),
+        );
+    }
+
+    wdgt.into()
 }
