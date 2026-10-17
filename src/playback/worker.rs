@@ -389,6 +389,8 @@ impl PlaybackWorker {
             None
         };
 
+        let is_opus = prebuffer.windows(8).any(|w| w == b"OpusHead");
+
         // Bounded channel connects async network streamer to blocking Rodio mixer decoder
         let (tx_chunks, rx_chunks) = crossbeam_channel::bounded::<Vec<u8>>(128);
         let _ = tx_chunks.send(prebuffer);
@@ -468,7 +470,11 @@ impl PlaybackWorker {
                 }
             }
             Err(e) => {
-                let err_msg = format!("Audio decoder error: {e:?}");
+                let err_msg = if is_opus {
+                    "Ogg Opus format is not currently supported (only Ogg Vorbis, MP3, AAC, and FLAC are supported)".to_string()
+                } else {
+                    format!("Audio decoder error: {e:?}")
+                };
                 tracing::error!("{err_msg}");
                 self.update_status(PlaybackStatus::Error { message: err_msg });
             }

@@ -726,13 +726,13 @@ mod tests {
     #[test]
     fn test_earth_config_and_outlines_toggle() {
         let mut state = AppState::default();
-        assert!(state.earth_config.show_country_outlines);
-
-        state.handle_message(&Message::ToggleCountryOutlines);
         assert!(!state.earth_config.show_country_outlines);
 
-        state.handle_message(&Message::SetShowCountryOutlines(true));
+        state.handle_message(&Message::ToggleCountryOutlines);
         assert!(state.earth_config.show_country_outlines);
+
+        state.handle_message(&Message::SetShowCountryOutlines(false));
+        assert!(!state.earth_config.show_country_outlines);
 
         state.handle_message(&Message::SetOutlineColor([1.0, 0.0, 0.0, 1.0]));
         assert_eq!(
