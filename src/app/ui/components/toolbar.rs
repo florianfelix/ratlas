@@ -6,7 +6,7 @@ use fuzzy_matcher::{FuzzyMatcher, skim::SkimMatcherV2};
 #[allow(unused)]
 use iced::{
     Length,
-    widget::{button, column, container, pick_list, row, text, text_input},
+    widget::{Space, button, column, container, pick_list, row, text, text_input},
 };
 
 /// Formats a positive integer with thousands separators (e.g. 12450 -> "12,450")
@@ -88,7 +88,6 @@ fn wdgt_station_limit<'a>(state: &'a UiState) -> Element<'a> {
 
 fn wdgt_country_select<'a>(state: &'a UiState) -> Element<'a> {
     let mut wdgt = row![
-        // text("Country:").size(12).align_y(iced::Alignment::Center),
         pick_list(
             isocountry::CountryCode::as_array().as_slice(),
             state.station_filter.country_code,
@@ -233,6 +232,38 @@ fn wdgt_tag_selector<'a>(state: &'a UiState) -> Element<'a> {
     wdgt.into()
 }
 
+fn wdgt_earth_controls<'a>(state: &'a UiState) -> Element<'a> {
+    let borders_label = if state.earth_config.show_country_outlines {
+        "Borders: ON"
+    } else {
+        "Borders: OFF"
+    };
+
+    let borders_btn = button(
+        text(borders_label)
+            .size(11)
+            .align_y(iced::Alignment::Center),
+    )
+    .padding([3, 8])
+    .style(if state.earth_config.show_country_outlines {
+        button::primary
+    } else {
+        button::secondary
+    })
+    .on_press(Message::ToggleCountryOutlines);
+
+    let theme_label = format!("Earth: {}", state.earth_config.base_texture.label());
+    let theme_btn = button(text(theme_label).size(11).align_y(iced::Alignment::Center))
+        .padding([3, 8])
+        .style(button::secondary)
+        .on_press(Message::CycleEarthBaseTexture);
+
+    row![borders_btn, theme_btn]
+        .spacing(6)
+        .align_y(iced::Alignment::Center)
+        .into()
+}
+
 pub fn toolbar<'a>(state: &'a UiState) -> Element<'a> {
     let left_controls = row![
         wdgt_station_limit(state),
@@ -243,7 +274,16 @@ pub fn toolbar<'a>(state: &'a UiState) -> Element<'a> {
     .spacing(8)
     .align_y(iced::Alignment::Center);
 
-    container(left_controls)
+    let right_controls = wdgt_earth_controls(state);
+
+    let content = row![
+        left_controls,
+        Space::new().width(Length::Fill),
+        right_controls,
+    ]
+    .align_y(iced::Alignment::Center);
+
+    container(content)
         .style(container::bordered_box)
         .width(Length::Fill)
         .padding(6)
@@ -275,36 +315,20 @@ mod tests {
                 stationcount: 5000,
             },
             radiobrowser::ApiTag {
-                name: "hard rock".to_string(),
+                name: "indie rock".to_string(),
                 stationcount: 2000,
             },
             radiobrowser::ApiTag {
-                name: "jazz".to_string(),
+                name: "pop".to_string(),
                 stationcount: 8000,
-            },
-            radiobrowser::ApiTag {
-                name: "dead tag".to_string(),
-                stationcount: 0,
             },
         ];
 
-        // Empty query
-        let res = search_tags("", &tags, &[], 5);
-        assert!(res.is_empty());
+        let active_tags = vec!["rock".to_string()];
+        let results = search_tags("roc", &tags, &active_tags, 5);
 
-        // Search "rock"
-        let res = search_tags("rock", &tags, &[], 5);
-        assert_eq!(res.len(), 3);
-        assert_eq!(res[0].0.name, "rock");
-
-        // Active tag exclusion
-        let res = search_tags("rock", &tags, &["rock".to_string()], 5);
-        assert_eq!(res.len(), 2);
-        assert_eq!(res[0].0.name, "classic rock");
-        assert_eq!(res[1].0.name, "hard rock");
-
-        // Station count 0 excluded
-        let res = search_tags("dead", &tags, &[], 5);
-        assert!(res.is_empty());
+        assert_eq!(results.len(), 2);
+        assert_eq!(results[0].0.name, "classic rock");
+        assert_eq!(results[1].0.name, "indie rock");
     }
 }

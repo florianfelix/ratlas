@@ -246,6 +246,39 @@ impl RenderObject {
         )
     }
 
+    /// Convenience builder to create an unlit RenderObject with uniform color tint from an OBJ file.
+    pub fn unlit_from_obj(
+        canvas_renderer: &CanvasRenderer,
+        obj_path: impl AsRef<Path>,
+        color: glam::Vec4,
+    ) -> Self {
+        let resolved_obj = resolve_asset_path(obj_path.as_ref());
+        let gpu = &canvas_renderer.gpu;
+        let mesh = Mesh::from_obj(&gpu.device, &resolved_obj).unwrap_or_else(|e| {
+            tracing::warn!(
+                "Failed to load {:?} ({e}), using fallback mesh",
+                resolved_obj
+            );
+            Mesh::fallback_triangle(&gpu.device)
+        });
+        let name = resolved_obj
+            .file_name()
+            .unwrap_or(OsStr::new("unlit_object"))
+            .to_str()
+            .unwrap_or("unlit_object");
+
+        let material = Material::unlit(canvas_renderer.pipelines.unlit_pipeline.clone());
+
+        Self::new(
+            name,
+            gpu.device.clone(),
+            Arc::new(mesh),
+            Arc::new(material),
+            canvas_renderer.pipelines.transform_layout.clone(),
+        )
+        .with_color_tint(color)
+    }
+
     /// Creates an independent instance sharing mesh, material, and pipeline resources,
     /// but with its own transform buffer, bind group, and transform properties.
     pub fn create_instance(&self) -> Self {
@@ -321,6 +354,10 @@ impl RenderObject {
         self
     }
 
+    pub fn set_material(&mut self, material: Arc<Material>) {
+        self.material = material;
+    }
+
     /// Computes the position and outward surface normal on a sphere at given latitude and longitude
     /// (in degrees) with specified radius.
     /// Coordinates are aligned with the equirectangular earth texture mapping.
@@ -352,9 +389,11 @@ impl RenderObject {
     pub fn draw<'a>(&'a self, render_pass: &mut wgpu::RenderPass<'a>) {
         render_pass.set_pipeline(&self.material.pipeline);
         render_pass.set_bind_group(0, &self.transform_bind_group, &[]);
-        render_pass.set_bind_group(1, &self.material.texture_bind_group, &[]);
+        if let Some(ref texture_bg) = self.material.texture_bind_group {
+            render_pass.set_bind_group(1, texture_bg, &[]);
+        }
         render_pass.set_vertex_buffer(0, self.mesh.vertex_buffer.slice(..));
-        render_pass.set_index_buffer(self.mesh.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
+        render_pass.set_index_buffer(self.mesh.index_buffer.slice(..), self.mesh.index_format);
         render_pass.draw_indexed(0..self.mesh.index_count, 0, 0..1);
     }
 }

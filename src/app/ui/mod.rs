@@ -1,7 +1,7 @@
 use std::sync::Arc;
 use winit::window::Window;
 
-use crate::app::app_state::{AppState, StationFilter, gpu::Gpu};
+use crate::app::app_state::{AppState, EarthConfig, StationFilter, gpu::Gpu};
 use iced_winit::program::Program;
 
 pub mod components;
@@ -23,6 +23,7 @@ pub struct UiState {
     pub station_filter: StationFilter,
     pub tag_search_query: String,
     pub api_tags: Vec<radiobrowser::ApiTag>,
+    pub earth_config: EarthConfig,
 }
 
 pub type Element<'a> = iced_wgpu::core::Element<'a, Message, iced::Theme, iced_wgpu::Renderer>;
@@ -146,6 +147,7 @@ impl IcedUi {
         self.state.station_filter = state.station_filter.clone();
         self.state.displayed_stations_count = state.radio_stations.len();
         self.state.total_stations_count = state.all_radio_stations.len();
+        self.state.earth_config = state.earth_config.clone();
         if self.state.api_tags.len() != state.api_tags.len() {
             self.state.api_tags = state.api_tags.clone();
         }
@@ -242,7 +244,7 @@ impl IcedUi {
     }
 
     /// Pure update pass: advances the Iced UI interface, draining all UI interaction messages
-    /// and returning the calculated viewport together with the list of produced messages.\
+    /// and returning the calculated viewport together with the list of produced messages.
     /// Does not touch winit Window or external system channels.
     pub fn update(&mut self, window: &Window) -> UiUpdateResult {
         let physical_size = window.inner_size();

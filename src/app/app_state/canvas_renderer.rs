@@ -3,19 +3,18 @@ use std::sync::{
     atomic::{AtomicU32, Ordering},
 };
 
-use iced::wgpu::{self, util::DeviceExt};
+use iced::wgpu;
 
 use crate::{
-    app::app_state::{
-        camera::Camera, canvas_renderer::pipeline_manager::PipelineManager, gpu::Gpu,
-    },
+    app::app_state::{camera::Camera, gpu::Gpu},
     data::{
         CameraUniform, InstanceRaw, MarkerInstance, RenderObject, material::Material, mesh::Mesh,
         resolve_asset_path,
     },
 };
 
-mod pipeline_manager;
+pub mod pipeline_manager;
+pub use pipeline_manager::PipelineManager;
 
 pub struct CanvasRenderer {
     pub gpu: Gpu,
@@ -32,16 +31,13 @@ impl CanvasRenderer {
     pub fn new(gpu: Gpu) -> Self {
         let pipelines = PipelineManager::new(&gpu.device, gpu.surface_config.format);
 
-        // 1. Camera Uniform Buffer & Bind Group for instanced rendering
-        let camera_buffer = gpu
-            .device
-            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: Some("Instanced Camera Buffer"),
-                contents: bytemuck::cast_slice(&[CameraUniform {
-                    view_proj: glam::Mat4::IDENTITY.to_cols_array_2d(),
-                }]),
-                usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-            });
+        // 1. Global Camera Uniform Buffer (Slot 0 for instanced pipeline)
+        let camera_buffer = gpu.device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("Instanced Camera Buffer"),
+            size: std::mem::size_of::<CameraUniform>() as u64,
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
 
         let camera_bind_group = gpu.device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("Instanced Camera Bind Group"),
@@ -52,16 +48,17 @@ impl CanvasRenderer {
             }],
         });
 
-        // 2. Pre-allocate instance buffer for up to 32,768 marker instances (~2.6 MB)
-        const MAX_INSTANCES: usize = 32768;
+        // 2. Dynamic GPU Instance Buffer (slot 1 vertex buffer: Model Matrix + Color Tint per instance)
+        // Pre-allocated for up to 10,000 active markers
+        const MAX_INSTANCES: usize = 10_000;
         let instance_buffer = gpu.device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("Marker Instance Buffer"),
+            label: Some("Instanced Marker GPU Buffer"),
             size: (MAX_INSTANCES * std::mem::size_of::<InstanceRaw>()) as u64,
             usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
 
-        // 3. Load marker mesh & material resources
+        // 3. Shared Marker Geometry and Material
         let resolved_obj = resolve_asset_path("assets/marker.obj");
         let resolved_texture = resolve_asset_path("assets/marker.jpg");
 
@@ -156,7 +153,7 @@ impl CanvasRenderer {
         objects: &'a [RenderObject],
         render_pass: &mut wgpu::RenderPass<'a>,
     ) {
-        // 1. Render single scene objects (Earth) with default pipeline
+        // 1. Render single scene objects (Earth, country outlines)
         for object in objects {
             if !object.visible {
                 continue;
@@ -169,7 +166,9 @@ impl CanvasRenderer {
         if count > 0 {
             render_pass.set_pipeline(&self.pipelines.instanced_pipeline);
             render_pass.set_bind_group(0, &self.camera_bind_group, &[]);
-            render_pass.set_bind_group(1, &self.marker_material.texture_bind_group, &[]);
+            if let Some(ref bg) = self.marker_material.texture_bind_group {
+                render_pass.set_bind_group(1, bg, &[]);
+            }
             render_pass.set_vertex_buffer(0, self.marker_mesh.vertex_buffer.slice(..));
             let buffer_bytes = (count as usize * std::mem::size_of::<InstanceRaw>()) as u64;
             render_pass.set_vertex_buffer(1, self.instance_buffer.slice(0..buffer_bytes));

@@ -46,6 +46,7 @@ pub struct Mesh {
     pub vertex_buffer: wgpu::Buffer,
     pub index_buffer: wgpu::Buffer,
     pub index_count: u32,
+    pub index_format: wgpu::IndexFormat,
 }
 
 impl Mesh {
@@ -91,6 +92,7 @@ impl Mesh {
             vertex_buffer,
             index_buffer,
             index_count: 3,
+            index_format: wgpu::IndexFormat::Uint16,
         }
     }
 }

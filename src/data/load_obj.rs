@@ -1,34 +1,32 @@
+use iced::wgpu;
 use std::path::Path;
-
-use iced::wgpu::{self, util::DeviceExt};
+use wgpu::util::DeviceExt;
 
 use crate::data::mesh::{Mesh, Vertex};
 
-/// Lädt eine .obj-Datei und erstellt daraus eine GPU-Mesh-Struktur.
 pub fn load_mesh_from_obj(
     device: &wgpu::Device,
     path: impl AsRef<Path>,
 ) -> Result<Mesh, Box<dyn std::error::Error>> {
     // 1. OBJ-Datei laden. tobj spaltet die Datei automatisch in "Models" (Teilnetze) auf.
-    // Für dieses Beispiel fusionieren wir sie oder laden das erste gefundene Modell.
     let (models, _materials) = tobj::load_obj(
         path.as_ref(),
         &tobj::LoadOptions {
-            triangulate: true,  // Erzwingt, dass alle Polygone Dreiecke sind
-            single_index: true, // Vereint Positions-, Normalen- und UV-Indizes
+            triangulate: true,
+            single_index: true,
             ..Default::default()
         },
     )?;
 
-    // Wir nehmen das erste Modell aus der Datei (oder kombinieren sie bei Bedarf)
-    let mesh_data = &models
-        .first()
-        .ok_or("Die OBJ-Datei enthält keine Geometrie.")?
-        .mesh;
+    if models.is_empty() {
+        return Err("No models found in OBJ file".into());
+    }
 
-    // 2. Rohdaten in unsere Vertex-Struktur überführen
-    let mut vertices: Vec<Vertex> = Vec::new();
+    let mesh_data = &models[0].mesh;
+
+    // 2. Vertices aus den interleaved Daten von tobj zusammenbauen
     let num_vertices = mesh_data.positions.len() / 3;
+    let mut vertices: Vec<Vertex> = Vec::with_capacity(num_vertices);
 
     for i in 0..num_vertices {
         let pos = [
@@ -41,7 +39,7 @@ pub fn load_mesh_from_obj(
             [
                 mesh_data.texcoords[i * 2],
                 1.0 - mesh_data.texcoords[i * 2 + 1],
-            ] // Y-Achse für WGPU oft flippen
+            ] // Y-Achse für WGPU flippen
         } else {
             [0.0, 0.0]
         };
@@ -63,12 +61,28 @@ pub fn load_mesh_from_obj(
         });
     }
 
-    // 3. Indizes konvertieren (tobj gibt u32 aus, Ihr Code verlangt u16)
-    // HINWEIS: Wenn Ihr Modell mehr als 65.535 Vertices hat, müssen Sie in Ihrem
-    // `render_pass.set_index_buffer` auf `wgpu::IndexFormat::Uint32` umstellen!
-    let indices: Vec<u16> = mesh_data.indices.iter().map(|&idx| idx as u16).collect();
+    // 3. Indizes konvertieren: Bei > 65535 Vertices Uint32 verwenden
+    let needs_u32 = num_vertices > u16::MAX as usize
+        || mesh_data.indices.iter().any(|&idx| idx > u16::MAX as u32);
 
-    let index_count = indices.len() as u32;
+    let (index_buffer, index_format) = if needs_u32 {
+        let buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some(&format!("{:?} Index Buffer (u32)", path.as_ref())),
+            contents: bytemuck::cast_slice(&mesh_data.indices),
+            usage: wgpu::BufferUsages::INDEX,
+        });
+        (buffer, wgpu::IndexFormat::Uint32)
+    } else {
+        let indices_u16: Vec<u16> = mesh_data.indices.iter().map(|&idx| idx as u16).collect();
+        let buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some(&format!("{:?} Index Buffer (u16)", path.as_ref())),
+            contents: bytemuck::cast_slice(&indices_u16),
+            usage: wgpu::BufferUsages::INDEX,
+        });
+        (buffer, wgpu::IndexFormat::Uint16)
+    };
+
+    let index_count = mesh_data.indices.len() as u32;
 
     // 4. WGPU Vertex Buffer erstellen
     let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
@@ -77,16 +91,37 @@ pub fn load_mesh_from_obj(
         usage: wgpu::BufferUsages::VERTEX,
     });
 
-    // 5. WGPU Index Buffer erstellen
-    let index_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-        label: Some(&format!("{:?} Index Buffer", path.as_ref())),
-        contents: bytemuck::cast_slice(&indices),
-        usage: wgpu::BufferUsages::INDEX,
-    });
-
     Ok(Mesh {
         vertex_buffer,
         index_buffer,
         index_count,
+        index_format,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn test_load_country_outlines_obj() {
+        let (models, _) = tobj::load_obj(
+            "assets/country_outlines.obj",
+            &tobj::LoadOptions {
+                triangulate: true,
+                single_index: true,
+                ..Default::default()
+            },
+        )
+        .expect("country_outlines.obj should parse");
+
+        assert_eq!(models.len(), 1);
+        let mesh = &models[0].mesh;
+        println!(
+            "Country outlines loaded: {} vertices, {} indices (triangles: {})",
+            mesh.positions.len() / 3,
+            mesh.indices.len(),
+            mesh.indices.len() / 3
+        );
+        assert!(mesh.positions.len() / 3 > 0);
+        assert!(!mesh.indices.is_empty());
+    }
 }

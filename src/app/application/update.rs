@@ -2,7 +2,7 @@ use std::sync::Arc;
 use winit::window::Window;
 
 use crate::app::{
-    app_state::AppState,
+    app_state::{AppState, canvas_renderer::CanvasRenderer},
     application::types::Channels,
     ui::{IcedUi, Message},
 };
@@ -12,6 +12,7 @@ use crate::app::{
 pub fn update_ui(
     ui: &mut IcedUi,
     state: &mut AppState,
+    canvas_renderer: &CanvasRenderer,
     channels: &Channels,
     window: &Arc<Window>,
 ) -> iced_wgpu::graphics::Viewport {
@@ -44,6 +45,12 @@ pub fn update_ui(
                         url: url.clone(),
                         name: name.clone(),
                     });
+            }
+            Message::CycleEarthBaseTexture => {
+                state.cycle_earth_base_texture(canvas_renderer);
+            }
+            Message::SetEarthBaseTexture(tex) => {
+                state.set_earth_base_texture(canvas_renderer, *tex);
             }
             _ => {
                 state.handle_message(message);

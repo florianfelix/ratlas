@@ -4,14 +4,24 @@ use iced::wgpu;
 
 pub struct Material {
     pub pipeline: Arc<wgpu::RenderPipeline>,
-    pub texture_bind_group: wgpu::BindGroup,
+    pub texture_bind_group: Option<wgpu::BindGroup>,
 }
 
 impl Material {
-    pub fn new(pipeline: Arc<wgpu::RenderPipeline>, texture_bind_group: wgpu::BindGroup) -> Self {
+    pub fn new(
+        pipeline: Arc<wgpu::RenderPipeline>,
+        texture_bind_group: Option<wgpu::BindGroup>,
+    ) -> Self {
         Self {
             pipeline,
             texture_bind_group,
+        }
+    }
+
+    pub fn unlit(pipeline: Arc<wgpu::RenderPipeline>) -> Self {
+        Self {
+            pipeline,
+            texture_bind_group: None,
         }
     }
 
@@ -94,7 +104,7 @@ impl Material {
 
         Self {
             pipeline,
-            texture_bind_group,
+            texture_bind_group: Some(texture_bind_group),
         }
     }
 }

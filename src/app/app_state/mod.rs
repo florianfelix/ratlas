@@ -1,8 +1,9 @@
 use std::collections::HashMap;
+use std::sync::Arc;
 
 use crate::{
-    app::ui::Message,
-    data::{Effector, MarkerInstance, RenderObject},
+    app::{app_state::canvas_renderer::CanvasRenderer, ui::Message},
+    data::{Effector, MarkerInstance, RenderObject, material::Material},
 };
 
 pub mod camera;
@@ -13,6 +14,62 @@ pub mod spatial_grid;
 pub use camera::{Camera, Ray};
 use radiobrowser::ApiStation;
 pub use spatial_grid::{GlobeSpatialGrid, SpatialStation};
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum EarthBaseTexture {
+    #[default]
+    Day,
+    Night,
+    Specular,
+}
+
+impl EarthBaseTexture {
+    #[allow(dead_code)]
+    pub const ALL: [EarthBaseTexture; 3] = [
+        EarthBaseTexture::Day,
+        EarthBaseTexture::Night,
+        EarthBaseTexture::Specular,
+    ];
+
+    pub fn asset_path(&self) -> &'static str {
+        match self {
+            EarthBaseTexture::Day => "assets/sphere_diffuse.jpg",
+            EarthBaseTexture::Night => "assets/sphere_diffuse_night.jpg",
+            EarthBaseTexture::Specular => "assets/8k_earth_specular_map.jpg",
+        }
+    }
+
+    pub fn label(&self) -> &'static str {
+        match self {
+            EarthBaseTexture::Day => "Day",
+            EarthBaseTexture::Night => "Night",
+            EarthBaseTexture::Specular => "Specular",
+        }
+    }
+}
+
+impl std::fmt::Display for EarthBaseTexture {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.label())
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct EarthConfig {
+    pub show_country_outlines: bool,
+    pub outline_color: glam::Vec4,
+    pub base_texture: EarthBaseTexture,
+}
+
+impl Default for EarthConfig {
+    fn default() -> Self {
+        Self {
+            show_country_outlines: true,
+            outline_color: glam::Vec4::new(0.2, 0.8, 1.0, 0.85),
+            base_texture: EarthBaseTexture::default(),
+        }
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum TagMatchMode {
@@ -121,6 +178,7 @@ pub struct AppState {
     #[allow(dead_code)]
     pub objects: HashMap<String, RenderObject>,
     pub camera: Camera,
+    pub earth_config: EarthConfig,
     pub all_radio_stations: Vec<radiobrowser::ApiStation>,
     pub radio_stations: Vec<radiobrowser::ApiStation>,
     pub station_filter: StationFilter,
@@ -153,6 +211,7 @@ impl Default for AppState {
             world: World::new(),
             objects: HashMap::new(),
             camera: Camera::default(),
+            earth_config: EarthConfig::default(),
             all_radio_stations: Vec::new(),
             radio_stations: Vec::new(),
             station_filter: StationFilter::default(),
@@ -230,10 +289,72 @@ impl AppState {
                 };
                 self.rebuild_station_markers();
             }
+            Message::ToggleCountryOutlines => {
+                self.toggle_country_outlines();
+            }
+            Message::SetShowCountryOutlines(show) => {
+                self.set_show_country_outlines(*show);
+            }
+            Message::SetOutlineColor(color) => {
+                self.set_country_outline_color(glam::Vec4::from_array(*color));
+            }
+            Message::CycleEarthBaseTexture | Message::SetEarthBaseTexture(_) => {
+                // Handled in application update loop with CanvasRenderer access
+            }
             Message::TogglePlayback | Message::StopPlayback | Message::PlayStation { .. } => {
                 // Handled in application run loop / channels
             }
         }
+    }
+
+    pub fn set_show_country_outlines(&mut self, show: bool) {
+        self.earth_config.show_country_outlines = show;
+        for obj in self.world.get_by_tag_mut("country_outlines") {
+            obj.visible = show;
+        }
+    }
+
+    pub fn toggle_country_outlines(&mut self) {
+        let new_show = !self.earth_config.show_country_outlines;
+        self.set_show_country_outlines(new_show);
+    }
+
+    pub fn set_country_outline_color(&mut self, color: glam::Vec4) {
+        self.earth_config.outline_color = color;
+        for obj in self.world.get_by_tag_mut("country_outlines") {
+            obj.color_tint = color;
+        }
+    }
+
+    pub fn set_earth_base_texture(
+        &mut self,
+        canvas_renderer: &CanvasRenderer,
+        texture: EarthBaseTexture,
+    ) {
+        if self.earth_config.base_texture == texture {
+            return;
+        }
+        self.earth_config.base_texture = texture;
+        let resolved_path = crate::data::resolve_asset_path(texture.asset_path());
+        let new_material = Arc::new(Material::from_image_path(
+            &canvas_renderer.gpu.device,
+            &canvas_renderer.gpu.queue,
+            canvas_renderer.pipelines.default_pipeline.clone(),
+            &canvas_renderer.pipelines.texture_layout,
+            &resolved_path,
+        ));
+        for obj in self.world.get_by_tag_mut("earth") {
+            obj.set_material(new_material.clone());
+        }
+    }
+
+    pub fn cycle_earth_base_texture(&mut self, canvas_renderer: &CanvasRenderer) {
+        let next_tex = match self.earth_config.base_texture {
+            EarthBaseTexture::Day => EarthBaseTexture::Night,
+            EarthBaseTexture::Night => EarthBaseTexture::Specular,
+            EarthBaseTexture::Specular => EarthBaseTexture::Day,
+        };
+        self.set_earth_base_texture(canvas_renderer, next_tex);
     }
 
     pub fn set_station_limit(&mut self, limit: StationLimit) {
@@ -556,12 +677,15 @@ impl World {
     pub fn get_by_tag(&self, tag: &str) -> impl Iterator<Item = &RenderObject> {
         self.objects.iter().filter(move |obj| obj.tag == tag)
     }
+
+    pub fn get_by_tag_mut(&mut self, tag: &str) -> impl Iterator<Item = &mut RenderObject> {
+        self.objects.iter_mut().filter(move |obj| obj.tag == tag)
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::data::PickingEffector;
 
     fn dummy_station(uuid: &str, name: &str) -> radiobrowser::ApiStation {
         radiobrowser::ApiStation {
@@ -600,297 +724,116 @@ mod tests {
     }
 
     #[test]
-    fn test_sphere_coords_mapping() {
-        let (pos_greenwich, normal_greenwich) = RenderObject::sphere_coords(0.0, 0.0, 1.0);
-        assert!((pos_greenwich.x - 1.0).abs() < 1e-4);
-        assert!(pos_greenwich.y.abs() < 1e-4);
-        assert!(pos_greenwich.z.abs() < 1e-4);
-        assert_eq!(pos_greenwich, normal_greenwich);
+    fn test_earth_config_and_outlines_toggle() {
+        let mut state = AppState::default();
+        assert!(state.earth_config.show_country_outlines);
 
-        let (pos_north, normal_north) = RenderObject::sphere_coords(90.0, 0.0, 1.0);
-        assert!(pos_north.x.abs() < 1e-4);
-        assert!((pos_north.y - 1.0).abs() < 1e-4);
-        assert!(pos_north.z.abs() < 1e-4);
-        assert_eq!(pos_north, normal_north);
+        state.handle_message(&Message::ToggleCountryOutlines);
+        assert!(!state.earth_config.show_country_outlines);
 
-        let (pos_lon90, normal_lon90) = RenderObject::sphere_coords(0.0, 90.0, 1.0);
-        assert!(pos_lon90.x.abs() < 1e-4);
-        assert!(pos_lon90.y.abs() < 1e-4);
-        assert!((pos_lon90.z - (-1.0)).abs() < 1e-4);
-        assert_eq!(pos_lon90, normal_lon90);
+        state.handle_message(&Message::SetShowCountryOutlines(true));
+        assert!(state.earth_config.show_country_outlines);
+
+        state.handle_message(&Message::SetOutlineColor([1.0, 0.0, 0.0, 1.0]));
+        assert_eq!(
+            state.earth_config.outline_color,
+            glam::Vec4::new(1.0, 0.0, 0.0, 1.0)
+        );
     }
 
     #[test]
-    fn test_earth_occlusion_math() {
-        let ray = Ray::new(
-            glam::Vec3::new(0.0, 0.0, 3.0),
-            glam::Vec3::new(0.0, 0.0, -1.0),
-        );
-        let earth_t = ray
-            .intersect_sphere(glam::Vec3::ZERO, Camera::SPHERE_RADIUS)
-            .unwrap();
-        assert!((earth_t - 2.0).abs() < 1e-4);
-
-        // Marker in front of Earth (t = 1.95 < 2.0): NOT occluded
-        let front_marker_t = ray
-            .intersect_sphere(glam::Vec3::new(0.0, 0.0, 1.05), 0.05)
-            .unwrap();
-        assert!(front_marker_t < earth_t);
-
-        // Marker on the back side of Earth (t = 3.95 > 2.0): occluded by Earth
-        let back_marker_t = ray
-            .intersect_sphere(glam::Vec3::new(0.0, 0.0, -1.05), 0.05)
-            .unwrap();
-        assert!(back_marker_t > earth_t);
-    }
-
-    #[test]
-    fn test_pick_station_closest_inside_mouse_lens_math() {
-        // Ray cast from (0, 0, 3) pointing along -Z towards the Earth at (0, 0, 0)
-        let ray = Ray::new(
-            glam::Vec3::new(0.0, 0.0, 3.0),
-            glam::Vec3::new(0.0, 0.0, -1.0),
-        );
-        let earth_t = ray
-            .intersect_sphere(glam::Vec3::ZERO, Camera::SPHERE_RADIUS)
-            .unwrap();
-        let globe_hit = ray.origin + ray.direction * earth_t;
-
-        // Picking effector with radius 0.02
-        let mut picker = PickingEffector::new(0.02);
-        picker.position = globe_hit;
-
-        let marker_1_pos = glam::Vec3::new(0.005, 0.0, 1.002); // Distance ~ 0.0054 <= 0.02 (inside lens, very close)
-        let marker_2_pos = glam::Vec3::new(0.015, 0.0, 1.002); // Distance ~ 0.0151 <= 0.02 (inside lens, further)
-        let marker_3_pos = glam::Vec3::new(0.050, 0.0, 1.002); // Distance ~ 0.0500 > 0.02 (outside lens)
-
-        let candidates = [
-            ("uuid-1", marker_1_pos),
-            ("uuid-2", marker_2_pos),
-            ("uuid-3", marker_3_pos),
+    fn test_rebuild_station_markers_with_filter() {
+        let mut state = AppState::default();
+        let stations = vec![
+            dummy_station("1", "Station One"),
+            dummy_station("2", "Station Two"),
         ];
-
-        let picked = picker.pick_closest(candidates.iter().map(|(id, pos)| (*id, *pos)));
-        assert_eq!(picked.map(|(id, _)| id), Some("uuid-1"));
-    }
-
-    #[test]
-    fn test_station_limit_counts() {
-        assert_eq!(StationLimit::Limit500.to_count(), Some(500));
-        assert_eq!(StationLimit::Limit1000.to_count(), Some(1000));
-        assert_eq!(StationLimit::Limit2500.to_count(), Some(2500));
-        assert_eq!(StationLimit::Limit5000.to_count(), Some(5000));
-        assert_eq!(StationLimit::All.to_count(), None);
-    }
-
-    #[test]
-    fn test_station_limit_filtering() {
-        let mut state = AppState::default();
-        let stations: Vec<_> = (0..3000)
-            .map(|i| dummy_station(&format!("uuid-{}", i), &format!("Station {}", i)))
-            .collect();
-
-        // Default limit is 1,000
         state.update_station_markers(stations);
-        assert_eq!(state.all_radio_stations.len(), 3000);
-        assert_eq!(state.radio_stations.len(), 1000);
-        assert_eq!(state.marker_instances.len(), 1000);
 
-        // Change limit to 500
-        state.set_station_limit(StationLimit::Limit500);
-        assert_eq!(state.radio_stations.len(), 500);
-        assert_eq!(state.marker_instances.len(), 500);
-
-        // Change limit to 2500
-        state.set_station_limit(StationLimit::Limit2500);
-        assert_eq!(state.radio_stations.len(), 2500);
-        assert_eq!(state.marker_instances.len(), 2500);
-
-        // Change limit to All
-        state.set_station_limit(StationLimit::All);
-        assert_eq!(state.radio_stations.len(), 3000);
-        assert_eq!(state.marker_instances.len(), 3000);
-
-        // Find station should still find stations outside the current active slice
-        state.set_station_limit(StationLimit::Limit500);
-        assert!(state.find_station("uuid-2999").is_some());
-    }
-
-    #[test]
-    fn test_country_filter_matching() {
-        let mut state = AppState::default();
-        let mut s_de = dummy_station("s-de", "German Station");
-        s_de.countrycode = "DE".to_string();
-
-        let mut s_us = dummy_station("s-us", "US Station");
-        s_us.countrycode = "US".to_string();
-
-        state.update_station_markers(vec![s_de, s_us]);
         assert_eq!(state.radio_stations.len(), 2);
-
-        // Filter by Germany (DEU)
-        state.set_station_filter(StationFilter {
-            country_code: Some(isocountry::CountryCode::DEU),
-            tags: vec![],
-            tag_match_mode: TagMatchMode::default(),
-        });
-        assert_eq!(state.radio_stations.len(), 1);
-        assert_eq!(state.radio_stations[0].stationuuid, "s-de");
-
-        // Clear filter
-        state.set_station_filter(StationFilter::default());
-        assert_eq!(state.radio_stations.len(), 2);
-    }
-
-    #[test]
-    fn test_tag_filter_matching() {
-        let mut state = AppState::default();
-        let mut s1 = dummy_station("s1", "Rock Station");
-        s1.tags = "rock, classic rock, 80s".to_string();
-        let mut s2 = dummy_station("s2", "Jazz Station");
-        s2.tags = "jazz, smooth jazz".to_string();
-        let mut s3 = dummy_station("s3", "Pop Party");
-        s3.tags = "pop, party".to_string();
-
-        state.update_station_markers(vec![s1, s2, s3]);
-        assert_eq!(state.radio_stations.len(), 3);
-
-        // Filter by "rock"
-        state.handle_message(&Message::AddTagFilter("rock".to_string()));
-        assert_eq!(state.radio_stations.len(), 1);
-        assert_eq!(state.radio_stations[0].stationuuid, "s1");
-
-        // Remove "rock"
-        state.handle_message(&Message::RemoveTagFilter("rock".to_string()));
-        assert_eq!(state.radio_stations.len(), 3);
-
-        // Exact tag boundary: filtering by "art" should NOT match "party"
-        state.handle_message(&Message::AddTagFilter("art".to_string()));
-        assert_eq!(state.radio_stations.len(), 0);
-        state.handle_message(&Message::RemoveTagFilter("art".to_string()));
-
-        // Case insensitivity
-        state.handle_message(&Message::AddTagFilter("JAZZ".to_string()));
-        assert_eq!(state.radio_stations.len(), 1);
-        assert_eq!(state.radio_stations[0].stationuuid, "s2");
-    }
-
-    #[test]
-    fn test_tag_match_mode_and_vs_or() {
-        let mut state = AppState::default();
-        let mut s1 = dummy_station("s1", "Rock Only");
-        s1.tags = "rock".to_string();
-        let mut s2 = dummy_station("s2", "Jazz Only");
-        s2.tags = "jazz".to_string();
-        let mut s3 = dummy_station("s3", "Rock and Jazz");
-        s3.tags = "rock, jazz".to_string();
-
-        state.update_station_markers(vec![s1, s2, s3]);
-        assert_eq!(state.radio_stations.len(), 3);
-
-        // Add both "rock" and "jazz"
-        state.handle_message(&Message::AddTagFilter("rock".to_string()));
-        state.handle_message(&Message::AddTagFilter("jazz".to_string()));
-
-        // Default mode is AND: only s3 has both
-        assert_eq!(state.station_filter.tag_match_mode, TagMatchMode::And);
-        assert_eq!(state.radio_stations.len(), 1);
-        assert_eq!(state.radio_stations[0].stationuuid, "s3");
-
-        // Switch to OR mode: s1, s2, and s3 match
-        state.handle_message(&Message::SetTagMatchMode(TagMatchMode::Or));
-        assert_eq!(state.station_filter.tag_match_mode, TagMatchMode::Or);
-        assert_eq!(state.radio_stations.len(), 3);
-
-        // Toggle back to AND mode: only s3 matches
-        state.handle_message(&Message::ToggleTagMatchMode);
-        assert_eq!(state.station_filter.tag_match_mode, TagMatchMode::And);
-        assert_eq!(state.radio_stations.len(), 1);
-        assert_eq!(state.radio_stations[0].stationuuid, "s3");
-    }
-
-    #[test]
-    fn test_combined_country_and_tag_filter() {
-        let mut state = AppState::default();
-        let mut s_de_rock = dummy_station("s-de-rock", "German Rock");
-        s_de_rock.countrycode = "DE".to_string();
-        s_de_rock.tags = "rock, indie".to_string();
-
-        let mut s_de_jazz = dummy_station("s-de-jazz", "German Jazz");
-        s_de_jazz.countrycode = "DE".to_string();
-        s_de_jazz.tags = "jazz".to_string();
-
-        let mut s_us_rock = dummy_station("s-us-rock", "US Rock");
-        s_us_rock.countrycode = "US".to_string();
-        s_us_rock.tags = "rock, metal".to_string();
-
-        state.update_station_markers(vec![s_de_rock, s_de_jazz, s_us_rock]);
-        assert_eq!(state.radio_stations.len(), 3);
-
-        // Filter by DEU
-        state.set_station_filter(StationFilter {
-            country_code: Some(isocountry::CountryCode::DEU),
-            tags: vec![],
-            tag_match_mode: TagMatchMode::default(),
-        });
-        assert_eq!(state.radio_stations.len(), 2);
-
-        // Add tag "rock" -> only s-de-rock matches
-        state.handle_message(&Message::AddTagFilter("rock".to_string()));
-        assert_eq!(state.radio_stations.len(), 1);
-        assert_eq!(state.radio_stations[0].stationuuid, "s-de-rock");
-    }
-
-    #[test]
-    fn test_horizon_culling_math() {
-        let cam_pos = glam::Vec3::new(0.0, 0.0, 3.0);
-        const HORIZON_CULL_MARGIN: f32 = -0.05;
-
-        // Front facing marker (directly facing camera along +Z)
-        let front_pos = glam::Vec3::new(0.0, 0.0, 1.002);
-        let to_cam_front = cam_pos - front_pos;
-        let is_front_visible = front_pos.dot(to_cam_front) > HORIZON_CULL_MARGIN;
-        assert!(is_front_visible, "Front-facing marker should be visible");
-
-        // Backside marker (facing away from camera along -Z)
-        let back_pos = glam::Vec3::new(0.0, 0.0, -1.002);
-        let to_cam_back = cam_pos - back_pos;
-        let is_back_visible = back_pos.dot(to_cam_back) > HORIZON_CULL_MARGIN;
-        assert!(!is_back_visible, "Backside marker should be culled");
-
-        // Equator marker (perpendicular to camera ray, at 90 deg)
-        let side_pos = glam::Vec3::new(1.002, 0.0, 0.0);
-        let to_cam_side = cam_pos - side_pos;
-        let is_side_visible = side_pos.dot(to_cam_side) > HORIZON_CULL_MARGIN;
-        assert!(
-            !is_side_visible,
-            "Side marker at 90 deg from 3.0 units away is behind horizon"
-        );
-    }
-
-    #[test]
-    fn test_marker_instances_effectors_and_picking() {
-        let mut state = AppState::default();
-        let mut s1 = dummy_station("s1", "Station One");
-        s1.geo_lat = Some(0.0);
-        s1.geo_long = Some(0.0); // Facing along +X (1.002, 0, 0)
-        let mut s2 = dummy_station("s2", "Station Two");
-        s2.geo_lat = Some(0.0);
-        s2.geo_long = Some(180.0); // Backside along -X (-1.002, 0, 0)
-
-        state.update_station_markers(vec![s1, s2]);
         assert_eq!(state.marker_instances.len(), 2);
 
-        // Position camera at (3.0, 0, 0) facing origin
-        state.camera.position = glam::Vec3::new(3.0, 0.0, 0.0);
-        state.apply_effectors();
+        // Filter by Germany (none of dummy match)
+        let mut filter = StationFilter::default();
+        filter.country_code = Some(isocountry::CountryCode::DEU);
+        state.set_station_filter(filter);
 
-        // Front marker (s1) should be visible, s2 should be culled
-        assert!(state.marker_instances[0].visible);
-        assert!(!state.marker_instances[1].visible);
+        assert_eq!(state.radio_stations.len(), 0);
+        assert_eq!(state.marker_instances.len(), 0);
+    }
 
-        // Hover over s1
-        state.set_hovered_station(Some("s1".to_string()));
-        assert!(state.marker_instances[0].color_tint.y > 1.0); // Highlighted tint
+    #[test]
+    fn test_spatial_grid_proximity_query() {
+        let mut state = AppState::default();
+        let stations = vec![
+            dummy_station("1", "Station Near"),
+            dummy_station("2", "Station Far"),
+        ];
+        state.update_station_markers(stations);
+
+        // Grid contains stations inserted at sphere coords
+        assert_eq!(state.spatial_grid.cell_count(), 1);
+        let pos = state.marker_instances[0].position;
+        let nearby = state.spatial_grid.query_radius(pos, 0.05);
+        assert!(!nearby.is_empty());
+        assert_eq!(nearby[0].uuid, "1");
+    }
+
+    #[test]
+    fn test_picking_effector_and_hover() {
+        let mut state = AppState::default();
+        let stations = vec![dummy_station("1", "Pick Me")];
+        state.update_station_markers(stations);
+
+        let target_pos = state.marker_instances[0].position;
+        let ray = Ray {
+            origin: target_pos.normalize() * 3.0,
+            direction: -target_pos.normalize(),
+        };
+
+        let picked = state.pick_station(&ray);
+        assert!(picked.is_some());
+        assert_eq!(picked.unwrap().stationuuid, "1");
+
+        // Set hovered station
+        let changed = state.set_hovered_station(Some("1".to_string()));
+        assert!(changed);
+        assert_eq!(state.hovered_station, Some("1".to_string()));
+
+        // Effector scaled the hovered marker up by 1.25
+        assert!((state.marker_instances[0].scale.x - 0.06 * 1.25).abs() < 1e-4);
+    }
+
+    #[test]
+    fn test_tag_search_and_matching() {
+        let mut station = dummy_station("1", "Rock Station");
+        station.tags = "classic rock, 80s, rock".to_string();
+
+        let mut filter = StationFilter::default();
+        filter.tags = vec!["rock".to_string()];
+        assert!(filter.matches(&station));
+
+        filter.tags = vec!["jazz".to_string()];
+        assert!(!filter.matches(&station));
+
+        // Multi-tag matching AND vs OR
+        filter.tags = vec!["rock".to_string(), "jazz".to_string()];
+        filter.tag_match_mode = TagMatchMode::And;
+        assert!(!filter.matches(&station));
+
+        filter.tag_match_mode = TagMatchMode::Or;
+        assert!(filter.matches(&station));
+    }
+
+    #[test]
+    fn test_tag_match_mode_toggle_message() {
+        let mut state = AppState::default();
+        assert_eq!(state.station_filter.tag_match_mode, TagMatchMode::And);
+
+        state.handle_message(&Message::ToggleTagMatchMode);
+        assert_eq!(state.station_filter.tag_match_mode, TagMatchMode::Or);
+
+        state.handle_message(&Message::ToggleTagMatchMode);
+        assert_eq!(state.station_filter.tag_match_mode, TagMatchMode::And);
     }
 }

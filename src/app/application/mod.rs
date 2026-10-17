@@ -107,10 +107,23 @@ impl ApplicationHandler<ProxyMessage> for Ratlas {
             let mut default_sphere = RenderObject::from_files(
                 &canvas_renderer,
                 "assets/sphere.obj",
-                "assets/sphere_diffuse.jpg",
+                state.earth_config.base_texture.asset_path(),
             );
             default_sphere.tag = "earth".to_string();
             state.world.add_object(default_sphere);
+
+            // Load country outlines mesh
+            let mut country_outlines = RenderObject::unlit_from_obj(
+                &canvas_renderer,
+                "assets/country_outlines.obj",
+                state.earth_config.outline_color,
+            );
+            country_outlines.tag = "country_outlines".to_string();
+            // Scale slightly above 1.000 so outline ribbons lie cleanly above earth sphere and below markers (1.002)
+            country_outlines.scale = glam::Vec3::splat(1.0008);
+            country_outlines.base_scale = country_outlines.scale;
+            country_outlines.visible = state.earth_config.show_country_outlines;
+            state.world.add_object(country_outlines);
 
             window.request_redraw();
 
@@ -300,7 +313,7 @@ impl ApplicationHandler<ProxyMessage> for Ratlas {
                 ui.apply_appstate(state);
 
                 // 3. Update Iced UI overlay and dispatch messages to AppState / channels
-                let viewport = update::update_ui(ui, state, channels, window);
+                let viewport = update::update_ui(ui, state, canvas_renderer, channels, window);
 
                 // 4. Pure GPU rendering (strictly immutable state)
                 render::render_frame(state, gpu, canvas_renderer, ui, &viewport, window);
