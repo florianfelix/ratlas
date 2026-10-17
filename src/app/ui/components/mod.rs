@@ -1,4 +1,5 @@
 pub mod inspector;
+pub mod tags;
 pub mod toolbar;
 pub mod viewport_hud;
 

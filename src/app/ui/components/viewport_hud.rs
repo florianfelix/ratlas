@@ -1,13 +1,31 @@
-use iced::widget::{column, container, row, text};
+#[allow(unused)]
+use iced::widget::{column, container, row, space, text};
 
-use crate::app::ui::{Element, UiState, components::toolbar::wdgt_tag_selected};
-// use crate::playback::PlaybackStatus;
+use crate::app::ui::{
+    Element, UiState,
+    components::tags::{wdgt_tag_selected, wdgt_tag_selector},
+};
 
 pub fn viewport_hud<'a>(state: &'a UiState) -> Element<'a> {
-    let mut content = column![].spacing(4).max_width(260.0);
-    content = content.push(wdgt_tag_selected(state));
-    content = content.push(wdgt_hovered_station(state));
-    container(content).padding(6).into()
+    let mut parent = column![
+        container(wdgt_tag_selector(state),)
+            .padding(6)
+            .style(container::rounded_box),
+    ];
+
+    let selected_tags = column![
+        wdgt_tag_selected(state),
+        // wdgt_hovered_station(state),
+    ]
+    .spacing(4)
+    .width(260.0);
+
+    let selected_tags = container(selected_tags)
+        .style(container::rounded_box)
+        .padding(6);
+
+    parent = parent.push(selected_tags);
+    container(parent).into()
 }
 
 fn wdgt_hovered_station<'a>(state: &'a UiState) -> Element<'a> {
