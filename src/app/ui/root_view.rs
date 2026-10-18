@@ -1,7 +1,7 @@
 use iced::{
     Font,
     font::Weight,
-    widget::{column, container, float, row, stack, text},
+    widget::{column, container, float, row, space, stack, text},
 };
 
 use crate::app::ui::{
@@ -66,12 +66,22 @@ fn tooltip<'a>(state: &'a UiState) -> Element<'a> {
 pub fn station_display<'a>(station: &'a radiobrowser::ApiStation) -> Element<'a> {
     let mut content = column![
         text(&station.name)
+            .font(Font {
+                weight: Weight::Bold,
+                ..Font::default()
+            })
             .size(12)
             .wrapping(text::Wrapping::WordOrGlyph),
-        text(&station.country)
-            .size(12)
-            .wrapping(text::Wrapping::WordOrGlyph),
+        space().height(4),
+        container(
+            text(format!("{}, {}", station.country, station.state))
+                .size(10)
+                .wrapping(text::Wrapping::WordOrGlyph)
+        )
+        .style(container::secondary)
+        .padding(2),
     ];
+    content = content.push(space().height(6));
 
     let mut tags = row![].spacing(6).padding(4);
     for t in station.tags.split(",").filter(|s| !s.trim().is_empty()) {

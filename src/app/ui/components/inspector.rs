@@ -1,4 +1,4 @@
-use iced::widget::{button, column, container, row, text};
+use iced::widget::{button, column, container, row, space, text};
 
 use crate::app::ui::root_view::station_display;
 use crate::app::ui::{Element, Message, UiState};
@@ -6,14 +6,27 @@ use crate::playback::PlaybackStatus;
 // use radiobrowser::ApiStation;
 
 pub fn inspector<'a>(state: &'a UiState) -> Element<'a> {
-    let mut content = column![text("Station Details").size(18)].spacing(6);
+    let mut content = column![
+        // text("Station Details").size(18)
+    ]
+    .spacing(6);
 
-    // if let Some(ref station) = state.playing_station {
-    //     content = content.push(column![
-    //         text(&station.name).size(14),
-    //         text(&station.country).size(10),
-    //     ]);
-    // }
+    content = content.push(play_controls(state));
+    content = content.push(space().height(4));
+
+    if let Some(ref station) = state.playing_station {
+        content = content.push(station_display(station));
+    }
+
+    container(content)
+        .style(container::bordered_box)
+        .width(210)
+        .padding(12)
+        .into()
+}
+
+fn play_controls<'a>(state: &'a UiState) -> Element<'a> {
+    let mut content = column![];
 
     match &state.playback_status {
         Some(PlaybackStatus::Playing { .. }) => {
@@ -66,17 +79,10 @@ pub fn inspector<'a>(state: &'a UiState) -> Element<'a> {
             content = content.push(text("Status: Stopped").size(12));
         }
     }
-    if let Some(ref station) = state.playing_station {
-        content = content.push(station_display(station));
-    }
-    // content = content.push(wdgt_hovered_station(state));
 
-    container(content)
-        .style(container::bordered_box)
-        .width(210)
-        .padding(12)
-        .into()
+    content.into()
 }
+
 //
 // fn wdgt_hovered_station<'a>(state: &'a UiState) -> Element<'a> {
 //     let mut wdgt = row![];
