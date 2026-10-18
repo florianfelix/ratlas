@@ -24,9 +24,15 @@ impl<'a> Ui {
         .width(iced::Length::Fill)
         .height(iced::Length::Fill);
 
-        let content = column![top_bar, body, space().height(Length::Fill), bottom_panel]
-            .width(iced::Length::Fill)
-            .height(iced::Length::Fill);
+        let content = column![
+            top_bar,
+            space().height(2),
+            body,
+            space().height(Length::Fill),
+            bottom_panel
+        ]
+        .width(iced::Length::Fill)
+        .height(iced::Length::Fill);
 
         // Stack the base UI and the floating tooltip over the entire window
         stack![
@@ -41,7 +47,7 @@ impl<'a> Ui {
 
 fn tooltip<'a>(state: &'a UiState) -> Element<'a> {
     if let (Some(station), Some(pos)) = (&state.hovered_station_full, state.mouse_pos) {
-        let tooltip_offset_x = 12.0; // small offset so the tooltip doesn't sit directly under cursor
+        let tooltip_offset_x = 12.0;
         let tooltip_offset_y = 12.0;
 
         let content = station_display(station);

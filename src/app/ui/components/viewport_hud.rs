@@ -11,22 +11,19 @@ pub fn viewport_hud<'a>(state: &'a UiState) -> Element<'a> {
 
     let selector = container(wdgt_tag_selector(state))
         .padding(6)
-        .style(container::rounded_box);
+        .style(container::bordered_box);
     parent = parent.push(selector);
     parent = parent.push(space().height(8));
 
     let boxed_selected = if !state.station_filter.tags.is_empty() {
         container(wdgt_tag_selected(state))
             .padding(6)
-            .style(container::rounded_box)
+            .style(container::bordered_box)
             .max_width(260.0)
     } else {
         container(row![])
     };
     parent = parent.push(boxed_selected);
 
-    container(parent)
-        // .padding(6)
-        // .style(container::rounded_box)
-        .into()
+    container(parent).into()
 }
