@@ -51,6 +51,11 @@ pub fn update_ui(
                         name: name.clone(),
                     });
             }
+            Message::VolumeChanged(vol) => {
+                let _ = channels
+                    .tx_playback
+                    .send(crate::playback::PlaybackMessage::SetVolume(*vol));
+            }
             Message::CycleEarthBaseTexture => {
                 state.cycle_earth_base_texture(canvas_renderer);
             }

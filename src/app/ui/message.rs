@@ -26,6 +26,7 @@ pub enum Message {
     TogglePlayback,
     StopPlayback,
     PlayStation { url: String, name: String },
+    VolumeChanged(f32),
 }
 
 /// Handles UI state transitions driven by Iced messages
@@ -98,6 +99,9 @@ pub fn handle_message(state: &mut UiState, message: Message) -> Task<Message> {
         }
         Message::TogglePlayback | Message::StopPlayback | Message::PlayStation { .. } => {
             // Application-level worker handles playback messages
+        }
+        Message::VolumeChanged(vol) => {
+            state.volume = vol;
         }
     }
 

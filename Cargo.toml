@@ -7,7 +7,7 @@ edition = "2024"
 iced_winit = "0.14.1"
 iced_wgpu = "0.14.0"
 iced_runtime = "0.14.0"
-iced = { version = "0.14.0", features = ["wgpu"] }
+iced = { version = "0.14.0", features = ["wgpu", "image", "canvas"] }
 # wgpu = { version = "27.0.1", features = ["webgl"] }
 winit = { version = "0.30", features = ["rwh_06"] }
 bytemuck = { version = "1.25.2", features = ["derive"] }

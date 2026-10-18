@@ -306,7 +306,7 @@ impl AppState {
             Message::CycleEarthBaseTexture | Message::SetEarthBaseTexture(_) => {
                 // Handled in application update loop with CanvasRenderer access
             }
-            Message::TogglePlayback | Message::StopPlayback | Message::PlayStation { .. } => {
+            Message::TogglePlayback | Message::StopPlayback | Message::PlayStation { .. } | Message::VolumeChanged(_) => {
                 // Handled in application run loop / channels
             }
         }

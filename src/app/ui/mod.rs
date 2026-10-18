@@ -10,9 +10,10 @@ mod root_view;
 
 pub use message::{Message, handle_message};
 
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct UiState {
     pub counter: i32,
+    pub volume: f32,
     pub mouse_pos: Option<glam::Vec2>,
     pub hovered_station_full: Option<radiobrowser::ApiStation>,
     pub selected_station: Option<radiobrowser::ApiStation>,
@@ -34,6 +35,27 @@ pub struct UiUpdateResult {
     #[allow(dead_code)]
     pub event_statuses: Vec<iced_wgpu::core::event::Status>,
     pub messages: Vec<Message>,
+}
+
+impl Default for UiState {
+    fn default() -> Self {
+        Self {
+            counter: 0,
+            volume: 1.0,
+            mouse_pos: None,
+            hovered_station_full: None,
+            selected_station: None,
+            playing_station: None,
+            playback_status: None,
+            station_limit: crate::app::app_state::StationLimit::default(),
+            displayed_stations_count: 0,
+            total_stations_count: 0,
+            station_filter: StationFilter::default(),
+            tag_search_query: String::new(),
+            api_tags: Vec::new(),
+            earth_config: EarthConfig::default(),
+        }
+    }
 }
 
 pub struct Ui {}

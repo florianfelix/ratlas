@@ -1,12 +1,12 @@
 use iced::{
-    Font,
+    Font, Length,
     font::Weight,
     widget::{column, container, float, row, space, stack, text},
 };
 
 use crate::app::ui::{
     Element, Ui, UiState,
-    components::{inspector, toolbar, viewport_hud},
+    components::{inspector, playback_controls, toolbar, viewport_hud},
 };
 
 impl<'a> Ui {
@@ -14,6 +14,7 @@ impl<'a> Ui {
         let top_bar = toolbar(state);
         let hud = viewport_hud(state);
         let right_panel = inspector(state);
+        let bottom_panel = playback_controls(state);
 
         let body = row![
             hud,
@@ -23,7 +24,7 @@ impl<'a> Ui {
         .width(iced::Length::Fill)
         .height(iced::Length::Fill);
 
-        let content = column![top_bar, body]
+        let content = column![top_bar, body, space().height(Length::Fill), bottom_panel]
             .width(iced::Length::Fill)
             .height(iced::Length::Fill);
 
