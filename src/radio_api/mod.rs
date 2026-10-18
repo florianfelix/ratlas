@@ -96,8 +96,11 @@ impl RadioStations {
         while let Ok(msg) = self.rx_radio.recv() {
             match msg {
                 RadioMessage::GetPopular => self.get_popular(false).await,
-                RadioMessage::ForceRefresh => self.get_popular(true).await,
-                RadioMessage::GetTags => self.get_tags().await,
+                RadioMessage::ForceRefresh => {
+                    self.get_popular(true).await;
+                    self.get_tags(true).await;
+                }
+                RadioMessage::GetTags => self.get_tags(false).await,
             }
         }
     }
@@ -131,13 +134,16 @@ impl RadioStations {
         }
     }
 
-    fn send_tag_result(&self, api_result: ApiResultTags) {
+    fn send_tag_result(&self, api_result: ApiResultTags, save_to_cache: bool) {
         match api_result {
             Err(e) => {
-                tracing::error!("Radio API: failed to query stations: {:?}", e);
+                tracing::error!("Radio API: failed to query tags: {:?}", e);
             }
             Ok(tags) => {
                 tracing::info!("Radio API: retrieved {} tags", tags.len());
+                if save_to_cache {
+                    cache::save_cached_tags(&tags);
+                }
                 if let Err(e) = self.proxy.send_event(ProxyMessage::RadioStationTags(tags)) {
                     tracing::error!("Radio API: failed to send ApiTags to event loop: {:?}", e);
                 }
@@ -176,8 +182,21 @@ impl RadioStations {
     }
 
     #[tracing::instrument(skip_all)]
-    async fn get_tags(&mut self) {
-        tracing::info!("Radio API: fetching tags");
+    async fn get_tags(&mut self, force_refresh: bool) {
+        if !force_refresh {
+            if let Some(cached) = cache::load_cached_tags() {
+                tracing::info!("Using {} cached tags", cached.len());
+                if let Err(e) = self
+                    .proxy
+                    .send_event(ProxyMessage::RadioStationTags(cached))
+                {
+                    tracing::error!("Radio API: failed to send cached tags: {:?}", e);
+                }
+                return;
+            }
+        }
+
+        tracing::info!("Radio API: fetching tags from network");
 
         let tag_result = self
             .api
@@ -186,7 +205,7 @@ impl RadioStations {
             .limit("100000")
             .send()
             .await;
-        self.send_tag_result(tag_result);
+        self.send_tag_result(tag_result, true);
     }
 }
 
