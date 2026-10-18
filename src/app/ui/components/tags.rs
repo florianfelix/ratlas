@@ -63,7 +63,8 @@ pub fn wdgt_tag_selected<'a>(state: &'a UiState) -> Element<'a> {
 }
 
 pub fn wdgt_tag_selector<'a>(state: &'a UiState) -> Element<'a> {
-    let mut wdgt = row![text("Tags:").size(12).align_y(iced::Alignment::Center),];
+    let mut wdgt = row![text("Tags: ").size(12).align_y(iced::Alignment::Center),]
+        .align_y(iced::Alignment::Center);
 
     // Tag fuzzy suggestions computation
     let suggestions = search_tags(

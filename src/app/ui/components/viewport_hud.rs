@@ -9,13 +9,24 @@ use crate::app::ui::{
 pub fn viewport_hud<'a>(state: &'a UiState) -> Element<'a> {
     let mut parent = column![];
 
-    let boxed_selected = container(wdgt_tag_selected(state)).max_width(260.0);
+    let selector = container(wdgt_tag_selector(state))
+        .padding(6)
+        .style(container::rounded_box);
+    parent = parent.push(selector);
+    parent = parent.push(space().height(8));
 
-    parent = parent.push(wdgt_tag_selector(state));
+    let boxed_selected = if !state.station_filter.tags.is_empty() {
+        container(wdgt_tag_selected(state))
+            .padding(6)
+            .style(container::rounded_box)
+            .max_width(260.0)
+    } else {
+        container(row![])
+    };
     parent = parent.push(boxed_selected);
 
     container(parent)
-        .padding(6)
-        .style(container::rounded_box)
+        // .padding(6)
+        // .style(container::rounded_box)
         .into()
 }

@@ -90,6 +90,11 @@ pub fn handle_cursor_moved(
     mouse: &mut MouseTracker,
 ) {
     let current_pos = (position.x, position.y);
+    // Set mouse position on AppState
+    state.mouse_pos = Some(glam::Vec2 {
+        x: position.x as f32,
+        y: position.y as f32,
+    });
     let physical_size = window.inner_size();
     let ray = state
         .camera

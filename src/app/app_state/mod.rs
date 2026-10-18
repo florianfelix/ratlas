@@ -190,6 +190,7 @@ pub struct AppState {
     pub selected_station: Option<String>, // stationuuid
     pub playing_station: Option<String>,  // stationuuid
     pub mouse_globe_pos: Option<glam::Vec3>,
+    pub mouse_pos: Option<glam::Vec2>,
     pub effectors: Vec<Effector>,
     pub playback_status: crate::playback::PlaybackStatus,
 }
@@ -223,6 +224,7 @@ impl Default for AppState {
             selected_station: None,
             playing_station: None,
             mouse_globe_pos: None,
+            mouse_pos: None,
             effectors,
             playback_status: crate::playback::PlaybackStatus::Stopped,
         }

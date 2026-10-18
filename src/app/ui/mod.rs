@@ -13,6 +13,7 @@ pub use message::{Message, handle_message};
 #[derive(Debug, Default)]
 pub struct UiState {
     pub counter: i32,
+    pub mouse_pos: Option<glam::Vec2>,
     pub hovered_station_name: Option<String>,
     pub selected_station: Option<radiobrowser::ApiStation>,
     pub playing_station: Option<radiobrowser::ApiStation>,
@@ -151,6 +152,7 @@ impl IcedUi {
         if self.state.api_tags.len() != state.api_tags.len() {
             self.state.api_tags = state.api_tags.clone();
         }
+        self.state.mouse_pos = state.mouse_pos;
     }
 
     #[tracing::instrument(skip_all)]
