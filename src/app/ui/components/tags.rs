@@ -71,7 +71,7 @@ pub fn wdgt_tag_selector<'a>(state: &'a UiState) -> Element<'a> {
         &state.tag_search_query,
         &state.api_tags,
         &state.station_filter.tags,
-        5,
+        7,
     );
 
     // Tag search text input
