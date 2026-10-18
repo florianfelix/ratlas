@@ -1,4 +1,8 @@
-use iced::widget::{column, container, float, row, stack, text};
+use iced::{
+    Font,
+    font::Weight,
+    widget::{column, container, float, row, stack, text},
+};
 
 use crate::app::ui::{
     Element, Ui, UiState,
@@ -35,18 +39,34 @@ impl<'a> Ui {
 }
 
 fn tooltip<'a>(state: &'a UiState) -> Element<'a> {
-    if let (Some(station_name), Some(pos)) = (&state.hovered_station_name, state.mouse_pos) {
+    if let (Some(station), Some(pos)) = (&state.hovered_station_full, state.mouse_pos) {
         let tooltip_offset_x = 12.0; // small offset so the tooltip doesn't sit directly under cursor
         let tooltip_offset_y = 12.0;
 
-        let content = container(
-            text(station_name)
-                .size(12)
-                .wrapping(text::Wrapping::WordOrGlyph),
-        )
-        .max_width(260)
-        .padding(6)
-        .style(container::rounded_box);
+        //         let mut content = column![
+        //             text(&station.name)
+        //                 .size(12)
+        //                 .wrapping(text::Wrapping::WordOrGlyph),
+        //         ];
+        //
+        //         let mut tags = row![].spacing(6).padding(4);
+        //         for t in station.tags.split(",").filter(|s| !s.trim().is_empty()) {
+        //             tags = tags.push(
+        //                 container(text(t.trim()).size(10).font(Font {
+        //                     weight: Weight::Bold,
+        //                     ..Font::default()
+        //                 }))
+        //                 .style(container::secondary)
+        //                 .padding(2),
+        //             );
+        //         }
+        //         content = content.push(tags.wrap());
+
+        let content = station_display(station);
+        let content = container(content)
+            .max_width(260)
+            .padding(6)
+            .style(container::rounded_box);
 
         float(content)
             .translate(move |content_bounds, _viewport| {
@@ -60,4 +80,30 @@ fn tooltip<'a>(state: &'a UiState) -> Element<'a> {
     } else {
         row![].into()
     }
+}
+
+pub fn station_display<'a>(station: &'a radiobrowser::ApiStation) -> Element<'a> {
+    let mut content = column![
+        text(&station.name)
+            .size(12)
+            .wrapping(text::Wrapping::WordOrGlyph),
+        text(&station.country)
+            .size(12)
+            .wrapping(text::Wrapping::WordOrGlyph),
+    ];
+
+    let mut tags = row![].spacing(6).padding(4);
+    for t in station.tags.split(",").filter(|s| !s.trim().is_empty()) {
+        tags = tags.push(
+            container(text(t.trim()).size(10).font(Font {
+                weight: Weight::Bold,
+                ..Font::default()
+            }))
+            .style(container::secondary)
+            .padding(2),
+        );
+    }
+    content = content.push(tags.wrap());
+
+    content.into()
 }

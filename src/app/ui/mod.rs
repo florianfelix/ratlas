@@ -14,7 +14,7 @@ pub use message::{Message, handle_message};
 pub struct UiState {
     pub counter: i32,
     pub mouse_pos: Option<glam::Vec2>,
-    pub hovered_station_name: Option<String>,
+    pub hovered_station_full: Option<radiobrowser::ApiStation>,
     pub selected_station: Option<radiobrowser::ApiStation>,
     pub playing_station: Option<radiobrowser::ApiStation>,
     pub playback_status: Option<crate::playback::PlaybackStatus>,
@@ -132,11 +132,11 @@ impl IcedUi {
 
     /// Syncs relevant presentation state from AppState into UiState before rendering
     pub fn apply_appstate(&mut self, state: &AppState) {
-        self.state.hovered_station_name = state
+        self.state.hovered_station_full = state
             .hovered_station
             .as_ref()
             .and_then(|id| state.find_station(id))
-            .map(|s| s.name.clone());
+            .cloned();
         self.state.selected_station = state
             .selected_station
             .as_ref()
@@ -226,7 +226,7 @@ impl IcedUi {
             };
             let is_inspector = self.state.selected_station.is_some() && pos.x >= (width - 215.0);
             let is_hud = (self.state.playback_status.is_some()
-                || self.state.hovered_station_name.is_some())
+                || self.state.hovered_station_full.is_some())
                 && pos.x <= 230.0
                 && pos.y > 48.0
                 && pos.y <= 180.0;

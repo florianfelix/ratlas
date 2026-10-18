@@ -1,5 +1,6 @@
 use iced::widget::{button, column, container, row, text};
 
+use crate::app::ui::root_view::station_display;
 use crate::app::ui::{Element, Message, UiState};
 use crate::playback::PlaybackStatus;
 // use radiobrowser::ApiStation;
@@ -7,12 +8,12 @@ use crate::playback::PlaybackStatus;
 pub fn inspector<'a>(state: &'a UiState) -> Element<'a> {
     let mut content = column![text("Station Details").size(18)].spacing(6);
 
-    if let Some(ref station) = state.playing_station {
-        content = content.push(column![
-            text(&station.name).size(14),
-            text(&station.country).size(10),
-        ]);
-    }
+    // if let Some(ref station) = state.playing_station {
+    //     content = content.push(column![
+    //         text(&station.name).size(14),
+    //         text(&station.country).size(10),
+    //     ]);
+    // }
 
     match &state.playback_status {
         Some(PlaybackStatus::Playing { .. }) => {
@@ -65,7 +66,9 @@ pub fn inspector<'a>(state: &'a UiState) -> Element<'a> {
             content = content.push(text("Status: Stopped").size(12));
         }
     }
-
+    if let Some(ref station) = state.playing_station {
+        content = content.push(station_display(station));
+    }
     // content = content.push(wdgt_hovered_station(state));
 
     container(content)
