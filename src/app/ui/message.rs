@@ -23,6 +23,7 @@ pub enum Message {
     SetOutlineColor([f32; 4]),
     CycleEarthBaseTexture,
     SetEarthBaseTexture(EarthBaseTexture),
+    ThemeSelected(iced::Theme),
     TogglePlayback,
     StopPlayback,
     PlayStation { url: String, name: String },
@@ -96,6 +97,9 @@ pub fn handle_message(state: &mut UiState, message: Message) -> Task<Message> {
         }
         Message::SetEarthBaseTexture(tex) => {
             state.earth_config.base_texture = tex;
+        }
+        Message::ThemeSelected(theme) => {
+            state.active_theme = theme;
         }
         Message::TogglePlayback | Message::StopPlayback | Message::PlayStation { .. } => {
             // Application-level worker handles playback messages

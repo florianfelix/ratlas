@@ -193,6 +193,7 @@ pub struct AppState {
     pub mouse_pos: Option<glam::Vec2>,
     pub effectors: Vec<Effector>,
     pub playback_status: crate::playback::PlaybackStatus,
+    pub active_theme: iced::Theme,
 }
 
 impl Default for AppState {
@@ -227,6 +228,7 @@ impl Default for AppState {
             mouse_pos: None,
             effectors,
             playback_status: crate::playback::PlaybackStatus::Stopped,
+            active_theme: iced::Theme::Dark,
         }
     }
 }
@@ -305,6 +307,9 @@ impl AppState {
             }
             Message::CycleEarthBaseTexture | Message::SetEarthBaseTexture(_) => {
                 // Handled in application update loop with CanvasRenderer access
+            }
+            Message::ThemeSelected(theme) => {
+                self.active_theme = theme.clone();
             }
             Message::TogglePlayback | Message::StopPlayback | Message::PlayStation { .. } | Message::VolumeChanged(_) => {
                 // Handled in application run loop / channels
@@ -840,5 +845,17 @@ mod tests {
 
         state.handle_message(&Message::ToggleTagMatchMode);
         assert_eq!(state.station_filter.tag_match_mode, TagMatchMode::And);
+    }
+
+    #[test]
+    fn test_theme_selected_message() {
+        let mut state = AppState::default();
+        assert_eq!(state.active_theme, iced::Theme::Dark);
+
+        state.handle_message(&Message::ThemeSelected(iced::Theme::Dracula));
+        assert_eq!(state.active_theme, iced::Theme::Dracula);
+
+        state.handle_message(&Message::ThemeSelected(iced::Theme::Nord));
+        assert_eq!(state.active_theme, iced::Theme::Nord);
     }
 }

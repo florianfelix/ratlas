@@ -62,6 +62,17 @@ fn wdgt_display_station_count<'a>(state: &'a UiState) -> Element<'a> {
         .into()
 }
 
+fn wdgt_theme_select<'a>(state: &'a UiState) -> Element<'a> {
+    pick_list(
+        iced::Theme::ALL,
+        Some(state.active_theme.clone()),
+        Message::ThemeSelected,
+    )
+    .text_size(11)
+    .padding([3, 8])
+    .into()
+}
+
 fn wdgt_earth_controls<'a>(state: &'a UiState) -> Element<'a> {
     let refresh_btn = button(text("↻ Refresh").size(11).align_y(iced::Alignment::Center))
         .padding([3, 8])
@@ -108,7 +119,9 @@ pub fn toolbar<'a>(state: &'a UiState) -> Element<'a> {
     .spacing(8)
     .align_y(iced::Alignment::Center);
 
-    let right_controls = wdgt_earth_controls(state);
+    let right_controls = row![wdgt_theme_select(state), wdgt_earth_controls(state),]
+        .spacing(6)
+        .align_y(iced::Alignment::Center);
 
     let content = row![
         left_controls,

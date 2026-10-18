@@ -26,6 +26,7 @@ pub struct UiState {
     pub tag_search_query: String,
     pub api_tags: Vec<radiobrowser::ApiTag>,
     pub earth_config: EarthConfig,
+    pub active_theme: iced::Theme,
 }
 
 pub type Element<'a> = iced_wgpu::core::Element<'a, Message, iced::Theme, iced_wgpu::Renderer>;
@@ -54,6 +55,7 @@ impl Default for UiState {
             tag_search_query: String::new(),
             api_tags: Vec::new(),
             earth_config: EarthConfig::default(),
+            active_theme: iced::Theme::Dark,
         }
     }
 }
@@ -78,10 +80,10 @@ impl iced_winit::program::Program for Ui {
 
     fn theme(
         &self,
-        _state: &Self::State,
+        state: &Self::State,
         _window: iced_wgpu::core::window::Id,
     ) -> Option<Self::Theme> {
-        Some(iced::Theme::Dark)
+        Some(state.active_theme.clone())
     }
     fn settings(&self) -> iced::Settings {
         iced::Settings::default()
@@ -175,6 +177,7 @@ impl IcedUi {
             self.state.api_tags = state.api_tags.clone();
         }
         self.state.mouse_pos = state.mouse_pos;
+        self.state.active_theme = state.active_theme.clone();
     }
 
     #[tracing::instrument(skip_all)]
