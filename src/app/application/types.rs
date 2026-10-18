@@ -3,6 +3,7 @@ use crossbeam_channel::{Receiver, Sender};
 #[derive(Debug, Clone)]
 pub enum RadioMessage {
     GetPopular,
+    ForceRefresh,
     GetTags,
 }
 

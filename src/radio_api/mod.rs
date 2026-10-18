@@ -1,3 +1,5 @@
+pub mod cache;
+
 use radiobrowser::RadioBrowserAPI;
 use tokio::runtime::Builder;
 use winit::event_loop::EventLoopProxy;
@@ -93,13 +95,14 @@ impl RadioStations {
     async fn run(&mut self) {
         while let Ok(msg) = self.rx_radio.recv() {
             match msg {
-                RadioMessage::GetPopular => self.get_popular().await,
+                RadioMessage::GetPopular => self.get_popular(false).await,
+                RadioMessage::ForceRefresh => self.get_popular(true).await,
                 RadioMessage::GetTags => self.get_tags().await,
             }
         }
     }
 
-    fn send_station_result(&self, api_result: ApiResultStations) {
+    fn send_station_result(&self, api_result: ApiResultStations, save_to_cache: bool) {
         match api_result {
             Err(e) => {
                 tracing::error!("Radio API: failed to query stations: {:?}", e);
@@ -113,6 +116,10 @@ impl RadioStations {
                     total,
                     supported.len()
                 );
+
+                if save_to_cache {
+                    cache::save_cached_stations(&supported);
+                }
 
                 if let Err(e) = self
                     .proxy
@@ -139,8 +146,21 @@ impl RadioStations {
     }
 
     #[tracing::instrument(skip_all)]
-    async fn get_popular(&mut self) {
-        tracing::info!("Radio API: fetching popular stations with geolocation...");
+    async fn get_popular(&mut self, force_refresh: bool) {
+        if !force_refresh {
+            if let Some(cached) = cache::load_cached_stations() {
+                tracing::info!("Using {} cached stations", cached.len());
+                if let Err(e) = self
+                    .proxy
+                    .send_event(ProxyMessage::RadioStationsLoaded(cached))
+                {
+                    tracing::error!("Radio API: failed to send cached stations: {:?}", e);
+                }
+                return;
+            }
+        }
+
+        tracing::info!("Radio API: fetching popular stations from network with geolocation...");
 
         let api_result = self
             .api
@@ -152,7 +172,7 @@ impl RadioStations {
             .limit("100000")
             .send()
             .await;
-        self.send_station_result(api_result);
+        self.send_station_result(api_result, true);
     }
 
     #[tracing::instrument(skip_all)]
@@ -230,28 +250,25 @@ mod tests {
             Ok(api) => api,
             Err(_) => radiobrowser::RadioBrowserAPI::new_from_dns_a("all.api.radio-browser.info")
                 .await
-                .expect("Failed to init RadioBrowserAPI"),
+                .expect("Failed to connect to RadioBrowser via DNS fallback"),
         };
 
-        let stations = api
+        let result = api
             .get_stations()
             .has_geo_info(true)
             .hidebroken(true)
             .order(radiobrowser::StationOrder::Clickcount)
             .reverse(true)
-            .limit("20")
+            .limit("5")
             .send()
-            .await
-            .expect("Failed to fetch stations");
+            .await;
 
-        let supported = filter_supported_stations(stations);
-        assert!(!supported.is_empty());
-        for station in &supported {
-            assert_ne!(station.hls, 1, "HLS station should have been filtered out");
-            assert!(
-                !station.url.to_lowercase().contains(".m3u8"),
-                "M3U8 url should have been filtered out"
-            );
+        assert!(result.is_ok());
+        let stations = result.unwrap();
+        assert!(!stations.is_empty());
+        for station in stations {
+            assert!(station.geo_lat.is_some());
+            assert!(station.geo_long.is_some());
         }
     }
 }

@@ -19,6 +19,11 @@ pub fn update_ui(
     let ui_result = ui.update(window);
     for message in &ui_result.messages {
         match message {
+            Message::RefreshStations => {
+                let _ = channels
+                    .tx_radio
+                    .send(crate::app::application::RadioMessage::ForceRefresh);
+            }
             Message::TogglePlayback => {
                 let _ = channels
                     .tx_playback

@@ -249,6 +249,9 @@ impl AppState {
             Message::ButtonClicked => {
                 // Application-level logic when button is clicked
             }
+            Message::RefreshStations => {
+                // Handled in update_ui / channels
+            }
             Message::SetStationLimit(limit) => {
                 self.set_station_limit(*limit);
             }

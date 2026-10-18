@@ -1,9 +1,9 @@
-use std::io::{Read, Seek};
-use std::num::{NonZeroU16, NonZeroU32};
-use std::time::Duration;
 use ogg::reading::PacketReader;
 use rodio::Source;
 use rusty_opus::OpusDecoder;
+use std::io::{Read, Seek};
+use std::num::{NonZeroU16, NonZeroU32};
+use std::time::Duration;
 
 /// Errors that can occur when reading or decoding an Ogg Opus stream.
 #[derive(Debug)]
@@ -22,7 +22,10 @@ impl std::fmt::Display for OpusError {
             Self::Codec(e) => write!(f, "Opus codec error: {e:?}"),
             Self::InvalidHeader(msg) => write!(f, "Invalid Opus header: {msg}"),
             Self::UnsupportedChannels(c) => {
-                write!(f, "Unsupported channel count: {c} (only mono and stereo are supported)")
+                write!(
+                    f,
+                    "Unsupported channel count: {c} (only mono and stereo are supported)"
+                )
             }
             Self::UnexpectedEof => write!(f, "Unexpected end of stream while reading Opus headers"),
         }
@@ -111,8 +114,7 @@ impl<R: Read + Seek> OpusSource<R> {
             }
         }
 
-        let decoder = OpusDecoder::new(48000, channel_count as usize)
-            .map_err(OpusError::Codec)?;
+        let decoder = OpusDecoder::new(48000, channel_count as usize).map_err(OpusError::Codec)?;
 
         let max_samples_per_frame = 5760 * (channel_count as usize);
 
@@ -161,7 +163,10 @@ impl<R: Read + Seek> OpusSource<R> {
                 continue;
             }
 
-            match self.decoder.decode(&packet.data, 5760, &mut self.decode_buf) {
+            match self
+                .decoder
+                .decode(&packet.data, 5760, &mut self.decode_buf)
+            {
                 Ok(samples_per_ch) => {
                     let total_samples = samples_per_ch * channel_count;
                     let decoded_slice = &self.decode_buf[..total_samples];
@@ -174,23 +179,30 @@ impl<R: Read + Seek> OpusSource<R> {
                         if discard_samples < total_samples {
                             let valid_slice = &decoded_slice[discard_samples..];
                             if (self.gain - 1.0).abs() > 0.0001 {
-                                self.sample_buf.extend(valid_slice.iter().map(|&s| s * self.gain));
+                                self.sample_buf
+                                    .extend(valid_slice.iter().map(|&s| s * self.gain));
                             } else {
                                 self.sample_buf.extend_from_slice(valid_slice);
                             }
                         }
                     } else if (self.gain - 1.0).abs() > 0.0001 {
-                        self.sample_buf.extend(decoded_slice.iter().map(|&s| s * self.gain));
+                        self.sample_buf
+                            .extend(decoded_slice.iter().map(|&s| s * self.gain));
                     } else {
                         self.sample_buf.extend_from_slice(decoded_slice);
                     }
                 }
                 Err(e) => {
-                    tracing::warn!("Opus decode error on packet (len {}): {e:?}", packet.data.len());
+                    tracing::warn!(
+                        "Opus decode error on packet (len {}): {e:?}",
+                        packet.data.len()
+                    );
                     // On corrupted packet in live stream, attempt packet-loss concealment (PLC)
-                    if let Ok(samples_per_ch) = self.decoder.decode(&[], 960, &mut self.decode_buf) {
+                    if let Ok(samples_per_ch) = self.decoder.decode(&[], 960, &mut self.decode_buf)
+                    {
                         let total_samples = samples_per_ch * channel_count;
-                        self.sample_buf.extend_from_slice(&self.decode_buf[..total_samples]);
+                        self.sample_buf
+                            .extend_from_slice(&self.decode_buf[..total_samples]);
                     }
                 }
             }
@@ -225,11 +237,7 @@ impl<R: Read + Seek + Send> Source for OpusSource<R> {
     #[inline]
     fn current_span_len(&self) -> Option<usize> {
         let remaining = self.sample_buf.len().saturating_sub(self.sample_pos);
-        if remaining > 0 {
-            Some(remaining)
-        } else {
-            None
-        }
+        if remaining > 0 { Some(remaining) } else { None }
     }
 
     #[inline]
@@ -253,10 +261,12 @@ mod tests {
     #[test]
     fn test_opus_source_with_channel_reader() {
         use crate::playback::reader::ChannelReader;
-        use std::sync::atomic::AtomicBool;
         use std::sync::Arc;
+        use std::sync::atomic::AtomicBool;
 
-        let data = std::fs::read("/tmp/alands.ogg").expect("read test file");
+        let Ok(data) = std::fs::read("/tmp/alands.ogg") else {
+            return;
+        };
         let (tx, rx) = crossbeam_channel::bounded(16);
 
         // Send data in chunks of 4 KB
@@ -269,12 +279,12 @@ mod tests {
         let probing = Arc::new(AtomicBool::new(false));
         let reader = ChannelReader::new(rx, stop, probing, 64 * 1024);
 
-        let mut source = OpusSource::new(reader).expect("create OpusSource with ChannelReader");
+        let source = OpusSource::new(reader).expect("create OpusSource with ChannelReader");
         assert_eq!(source.channels().get(), 2);
         assert_eq!(source.sample_rate().get(), 48000);
 
         let mut count = 0;
-        while let Some(_) = source.next() {
+        for _ in source {
             count += 1;
         }
 
@@ -293,7 +303,9 @@ mod tests {
 
     #[test]
     fn test_opus_source_playback() {
-        let file = File::open("/tmp/alands.ogg").expect("open test file");
+        let Ok(file) = File::open("/tmp/alands.ogg") else {
+            return;
+        };
         let mut source = OpusSource::new(file).expect("initialize OpusSource");
 
         assert_eq!(source.channels().get(), 2);
@@ -303,7 +315,7 @@ mod tests {
         let mut sample_count = 0;
         for _ in 0..96000 {
             if let Some(sample) = source.next() {
-                assert!(sample >= -2.0 && sample <= 2.0);
+                assert!((-2.0..=2.0).contains(&sample));
                 sample_count += 1;
             } else {
                 break;

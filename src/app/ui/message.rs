@@ -10,6 +10,7 @@ use super::UiState;
 pub enum Message {
     ButtonClicked,
     ResetCamera,
+    RefreshStations,
     SetStationLimit(StationLimit),
     StationFilterChanged(StationFilter),
     TagSearchInputChanged(String),
@@ -38,6 +39,9 @@ pub fn handle_message(state: &mut UiState, message: Message) -> Task<Message> {
         }
         Message::ResetCamera => {
             // Can trigger camera reset or set dirty flags
+        }
+        Message::RefreshStations => {
+            // Handled at application-level to dispatch to radio worker channel
         }
         Message::SetStationLimit(limit) => {
             state.station_limit = limit;

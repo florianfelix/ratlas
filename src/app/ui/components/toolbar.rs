@@ -63,6 +63,11 @@ fn wdgt_display_station_count<'a>(state: &'a UiState) -> Element<'a> {
 }
 
 fn wdgt_earth_controls<'a>(state: &'a UiState) -> Element<'a> {
+    let refresh_btn = button(text("↻ Refresh").size(11).align_y(iced::Alignment::Center))
+        .padding([3, 8])
+        .style(button::secondary)
+        .on_press(Message::RefreshStations);
+
     let borders_label = if state.earth_config.show_country_outlines {
         "Borders: ON"
     } else {
@@ -88,7 +93,7 @@ fn wdgt_earth_controls<'a>(state: &'a UiState) -> Element<'a> {
         .style(button::secondary)
         .on_press(Message::CycleEarthBaseTexture);
 
-    row![borders_btn, theme_btn]
+    row![refresh_btn, borders_btn, theme_btn]
         .spacing(6)
         .align_y(iced::Alignment::Center)
         .into()
