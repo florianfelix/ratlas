@@ -43,25 +43,6 @@ fn tooltip<'a>(state: &'a UiState) -> Element<'a> {
         let tooltip_offset_x = 12.0; // small offset so the tooltip doesn't sit directly under cursor
         let tooltip_offset_y = 12.0;
 
-        //         let mut content = column![
-        //             text(&station.name)
-        //                 .size(12)
-        //                 .wrapping(text::Wrapping::WordOrGlyph),
-        //         ];
-        //
-        //         let mut tags = row![].spacing(6).padding(4);
-        //         for t in station.tags.split(",").filter(|s| !s.trim().is_empty()) {
-        //             tags = tags.push(
-        //                 container(text(t.trim()).size(10).font(Font {
-        //                     weight: Weight::Bold,
-        //                     ..Font::default()
-        //                 }))
-        //                 .style(container::secondary)
-        //                 .padding(2),
-        //             );
-        //         }
-        //         content = content.push(tags.wrap());
-
         let content = station_display(station);
         let content = container(content)
             .max_width(260)
