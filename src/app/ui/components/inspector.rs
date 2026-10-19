@@ -9,11 +9,12 @@ pub fn inspector<'a>(state: &'a UiState) -> Element<'a> {
 
     if let Some(ref station) = state.playing_station {
         content = content.push(station_display(station));
+        container(content)
+            .style(container::bordered_box)
+            .width(210)
+            .padding(12)
+            .into()
+    } else {
+        container(row![]).into()
     }
-
-    container(content)
-        .style(container::bordered_box)
-        .width(210)
-        .padding(12)
-        .into()
 }
