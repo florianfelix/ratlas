@@ -58,7 +58,7 @@ impl Default for AppState {
             mouse_pos: None,
             effectors,
             playback_status: crate::playback::PlaybackStatus::Stopped,
-            active_theme: iced::Theme::Dark,
+            active_theme: iced::Theme::Moonfly,
         }
     }
 }
@@ -181,7 +181,7 @@ mod tests {
     #[test]
     fn test_theme_selected_message() {
         let mut state = AppState::default();
-        assert_eq!(state.active_theme, iced::Theme::Dark);
+        assert_eq!(state.active_theme, iced::Theme::Moonfly);
 
         state.handle_message(&Message::ThemeSelected(iced::Theme::Dracula));
         assert_eq!(state.active_theme, iced::Theme::Dracula);
