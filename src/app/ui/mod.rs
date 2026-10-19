@@ -1,7 +1,12 @@
 use std::sync::Arc;
 use winit::window::Window;
 
-use crate::app::app_state::{AppState, StationFilter, earth::EarthConfig, gpu::Gpu};
+use crate::app::app_state::{
+    AppState,
+    earth::EarthConfig,
+    filters::{StationFilter, StationLimit},
+    gpu::Gpu,
+};
 use iced_winit::program::Program;
 
 pub mod components;
@@ -19,7 +24,7 @@ pub struct UiState {
     pub selected_station: Option<radiobrowser::ApiStation>,
     pub playing_station: Option<radiobrowser::ApiStation>,
     pub playback_status: Option<crate::playback::PlaybackStatus>,
-    pub station_limit: crate::app::app_state::StationLimit,
+    pub station_limit: StationLimit,
     pub displayed_stations_count: usize,
     pub total_stations_count: usize,
     pub station_filter: StationFilter,
@@ -48,7 +53,7 @@ impl Default for UiState {
             selected_station: None,
             playing_station: None,
             playback_status: None,
-            station_limit: crate::app::app_state::StationLimit::default(),
+            station_limit: StationLimit::default(),
             displayed_stations_count: 0,
             total_stations_count: 0,
             station_filter: StationFilter::default(),

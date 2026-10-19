@@ -1,7 +1,10 @@
 use iced::Task;
 use tracing::info;
 
-use crate::app::app_state::{StationFilter, StationLimit, TagMatchMode, earth::EarthBaseTexture};
+use crate::app::app_state::{
+    earth::EarthBaseTexture,
+    filters::{StationFilter, StationLimit, TagMatchMode},
+};
 
 use super::UiState;
 
