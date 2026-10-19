@@ -28,8 +28,6 @@ pub use stations::Stations;
 
 pub struct AppState {
     pub world: World,
-    #[allow(dead_code)]
-    pub objects: HashMap<String, RenderObject>,
     pub camera: Camera,
     pub earth_config: EarthConfig,
     pub stations: Stations,
@@ -60,7 +58,6 @@ impl Default for AppState {
 
         Self {
             world: World::new(),
-            objects: HashMap::new(),
             camera: Camera::default(),
             earth_config: EarthConfig::default(),
             stations: Stations::default(),
