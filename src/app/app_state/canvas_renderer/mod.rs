@@ -2,14 +2,15 @@ use std::sync::{
     Arc,
     atomic::{AtomicU32, Ordering},
 };
+use std::time::Instant;
 
 use iced::wgpu;
 
 use crate::{
     app::app_state::{camera::Camera, gpu::Gpu},
     data::{
-        CameraUniform, InstanceRaw, MarkerInstance, RenderObject, material::Material, mesh::Mesh,
-        resolve_asset_path,
+        BackgroundUniform, CameraUniform, InstanceRaw, MarkerInstance, RenderObject,
+        material::Material, mesh::Mesh, resolve_asset_path,
     },
 };
 
@@ -22,9 +23,12 @@ pub struct CanvasRenderer {
     pub camera_buffer: wgpu::Buffer,
     pub camera_bind_group: wgpu::BindGroup,
     pub instance_buffer: wgpu::Buffer,
+    pub background_buffer: wgpu::Buffer,
+    pub background_bind_group: wgpu::BindGroup,
     pub marker_mesh: Arc<Mesh>,
     pub marker_material: Arc<Material>,
     pub visible_instance_count: AtomicU32,
+    pub start_time: Instant,
 }
 
 impl CanvasRenderer {
@@ -61,7 +65,27 @@ impl CanvasRenderer {
             mapped_at_creation: false,
         });
 
-        // 3. Shared Marker Geometry and Material
+        // 3. Background Uniform Buffer (slot 0 for fullscreen background shader)
+        let default_bg = BackgroundUniform::default();
+        let background_buffer = gpu.device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("Background Uniform Buffer"),
+            size: std::mem::size_of::<BackgroundUniform>() as u64,
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        gpu.queue
+            .write_buffer(&background_buffer, 0, bytemuck::cast_slice(&[default_bg]));
+
+        let background_bind_group = gpu.device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("Background Bind Group"),
+            layout: &pipelines.background_layout,
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: background_buffer.as_entire_binding(),
+            }],
+        });
+
+        // 4. Shared Marker Geometry and Material
         let resolved_obj = resolve_asset_path("assets/marker.obj");
         let resolved_texture = resolve_asset_path("assets/marker.jpg");
 
@@ -89,20 +113,76 @@ impl CanvasRenderer {
             camera_buffer,
             camera_bind_group,
             instance_buffer,
+            background_buffer,
+            background_bind_group,
             marker_mesh,
             marker_material,
             visible_instance_count: AtomicU32::new(0),
+            start_time: Instant::now(),
         }
     }
 
-    /// Updates transform uniform buffers for single objects and uploads visible marker instances
+    /// Sets custom background gradient colors and resolution.
+    pub fn set_background_colors(&self, top: [f32; 4], bottom: [f32; 4], resolution: [f32; 2]) {
+        let bg_uniform = BackgroundUniform {
+            color_top: top,
+            color_bottom: bottom,
+            resolution,
+            time: self.start_time.elapsed().as_secs_f32(),
+            _padding: 0.0,
+        };
+        self.gpu.queue.write_buffer(
+            &self.background_buffer,
+            0,
+            bytemuck::cast_slice(&[bg_uniform]),
+        );
+    }
+
+    /// Updates background uniform, camera uniform, and uploads visible marker instances.
     pub fn update(
         &self,
         camera: &Camera,
         objects: &[RenderObject],
         instances: &[MarkerInstance],
         aspect_ratio: f32,
+        viewport_size: [f32; 2],
+        theme: Option<&iced::Theme>,
     ) {
+        // 0. Update background uniform buffer
+        let time = self.start_time.elapsed().as_secs_f32();
+        let (color_top, color_bottom) = if let Some(th) = theme {
+            let p = th.palette();
+            (
+                [
+                    p.background.r * 0.35,
+                    p.background.g * 0.35,
+                    p.background.b * 0.45,
+                    1.0,
+                ],
+                [
+                    p.background.r * 0.75,
+                    p.background.g * 0.75,
+                    p.background.b * 0.85,
+                    1.0,
+                ],
+            )
+        } else {
+            ([0.03, 0.03, 0.08, 1.0], [0.08, 0.07, 0.16, 1.0])
+        };
+
+        let bg_uniform = BackgroundUniform {
+            color_top,
+            color_bottom,
+            resolution: viewport_size,
+            time,
+            _padding: 0.0,
+        };
+        self.gpu.queue.write_buffer(
+            &self.background_buffer,
+            0,
+            bytemuck::cast_slice(&[bg_uniform]),
+        );
+
         let view = camera.view_matrix();
         let proj = camera.projection_matrix(aspect_ratio);
         let vp = proj * view;
@@ -160,12 +240,17 @@ impl CanvasRenderer {
         }
     }
 
-    /// Renders single scene objects and all marker instances (in a single instanced draw call)
+    /// Renders fullscreen background shader, single scene objects, and all marker instances
     pub fn render<'a>(
         &'a self,
         objects: &'a [RenderObject],
         render_pass: &mut wgpu::RenderPass<'a>,
     ) {
+        // 0. Render fullscreen background triangle controlled by shader + uniform buffer
+        render_pass.set_pipeline(&self.pipelines.background_pipeline);
+        render_pass.set_bind_group(0, &self.background_bind_group, &[]);
+        render_pass.draw(0..3, 0..1);
+
         // 1. Render single scene objects (Earth, country outlines)
         for object in objects {
             if !object.visible {

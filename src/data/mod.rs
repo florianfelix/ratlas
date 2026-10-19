@@ -84,6 +84,28 @@ pub struct CameraUniform {
 
 #[repr(C)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct BackgroundUniform {
+    pub color_top: [f32; 4],
+    pub color_bottom: [f32; 4],
+    pub resolution: [f32; 2],
+    pub time: f32,
+    pub _padding: f32,
+}
+
+impl Default for BackgroundUniform {
+    fn default() -> Self {
+        Self {
+            color_top: [0.03, 0.03, 0.08, 1.0],
+            color_bottom: [0.08, 0.07, 0.16, 1.0],
+            resolution: [1920.0, 1080.0],
+            time: 0.0,
+            _padding: 0.0,
+        }
+    }
+}
+
+#[repr(C)]
+#[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct InstanceRaw {
     pub model_matrix: [[f32; 4]; 4],
     pub color_tint: [f32; 4],
@@ -161,6 +183,18 @@ impl MarkerInstance {
     }
 }
 
+impl Default for MarkerInstance {
+    fn default() -> Self {
+        Self::new(
+            String::new(),
+            String::new(),
+            glam::Vec3::ZERO,
+            glam::Quat::IDENTITY,
+            glam::Vec3::ONE,
+        )
+    }
+}
+
 impl RenderObject {
     pub fn new(
         name: impl Into<String>,
@@ -169,6 +203,7 @@ impl RenderObject {
         material: Arc<Material>,
         transform_layout: Arc<wgpu::BindGroupLayout>,
     ) -> Self {
+        let name = name.into();
         let transform_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Object Transform Buffer"),
             contents: bytemuck::cast_slice(&[TransformUniform {
@@ -188,7 +223,7 @@ impl RenderObject {
         });
 
         Self {
-            name: name.into(),
+            name,
             tag: String::new(),
             id: None,
             mesh,
@@ -395,5 +430,22 @@ impl RenderObject {
         render_pass.set_vertex_buffer(0, self.mesh.vertex_buffer.slice(..));
         render_pass.set_index_buffer(self.mesh.index_buffer.slice(..), self.mesh.index_format);
         render_pass.draw_indexed(0..self.mesh.index_count, 0, 0..1);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_background_uniform_alignment_and_defaults() {
+        assert_eq!(std::mem::size_of::<BackgroundUniform>(), 48);
+        assert_eq!(std::mem::align_of::<BackgroundUniform>(), 4);
+
+        let default_bg = BackgroundUniform::default();
+        assert_eq!(default_bg.color_top, [0.03, 0.03, 0.08, 1.0]);
+        assert_eq!(default_bg.color_bottom, [0.08, 0.07, 0.16, 1.0]);
+        assert_eq!(default_bg.resolution, [1920.0, 1080.0]);
+        assert_eq!(default_bg.time, 0.0);
     }
 }

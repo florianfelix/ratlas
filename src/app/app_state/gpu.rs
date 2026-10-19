@@ -170,7 +170,7 @@ impl Gpu {
             .texture
             .create_view(&wgpu::TextureViewDescriptor::default());
 
-        // 1. Clear / Scene Pass (3D viewport rendering with depth testing)
+        // 1. Scene Pass (Fullscreen background shader + 3D viewport rendering with depth testing)
         let mut encoder = self
             .device
             .create_command_encoder(&wgpu::CommandEncoderDescriptor {
@@ -179,17 +179,12 @@ impl Gpu {
 
         {
             let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("Scene Clear Pass"),
+                label: Some("Scene Pass"),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                     view: &view,
                     resolve_target: None,
                     ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(wgpu::Color {
-                            r: 0.1,
-                            g: 0.1,
-                            b: 0.15,
-                            a: 1.0,
-                        }),
+                        load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
                         store: wgpu::StoreOp::Store,
                     },
                     depth_slice: None,

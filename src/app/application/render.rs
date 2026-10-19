@@ -22,13 +22,15 @@ pub fn render_frame(
         return;
     }
 
-    // 1. Update 3D viewport canvas with camera, world objects, and instanced markers
+    // 1. Update 3D viewport canvas with camera, world objects, instanced markers, and background uniform
     let aspect_ratio = physical_size.width as f32 / physical_size.height as f32;
     canvas_renderer.update(
         &state.camera,
         &state.world.objects,
         &state.marker_instances,
         aspect_ratio,
+        [physical_size.width as f32, physical_size.height as f32],
+        Some(&state.active_theme),
     );
 
     // 2. Render scene from AppState world + UI overlay
