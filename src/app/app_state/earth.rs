@@ -131,3 +131,27 @@ impl Default for EarthConfig {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::app::ui::Message;
+
+    #[test]
+    fn test_earth_config_and_outlines_toggle() {
+        let mut state = AppState::default();
+        assert!(!state.earth_config.show_country_outlines);
+
+        state.handle_message(&Message::ToggleCountryOutlines);
+        assert!(state.earth_config.show_country_outlines);
+
+        state.handle_message(&Message::SetShowCountryOutlines(false));
+        assert!(!state.earth_config.show_country_outlines);
+
+        state.handle_message(&Message::SetOutlineColor([1.0, 0.0, 0.0, 1.0]));
+        assert_eq!(
+            state.earth_config.outline_color,
+            glam::Vec4::new(1.0, 0.0, 0.0, 1.0)
+        );
+    }
+}

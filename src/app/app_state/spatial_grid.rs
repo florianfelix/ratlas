@@ -145,3 +145,25 @@ impl GlobeSpatialGrid {
         closest
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::app::app_state::{AppState, dummy_station};
+
+    #[test]
+    fn test_spatial_grid_proximity_query() {
+        let mut state = AppState::default();
+        let stations = vec![
+            dummy_station("1", "Station Near"),
+            dummy_station("2", "Station Far"),
+        ];
+        state.update_station_markers(stations);
+
+        // Grid contains stations inserted at sphere coords
+        assert_eq!(state.spatial_grid.cell_count(), 1);
+        let pos = state.marker_instances[0].position;
+        let nearby = state.spatial_grid.query_radius(pos, 0.05);
+        assert!(!nearby.is_empty());
+        assert_eq!(nearby[0].uuid, "1");
+    }
+}

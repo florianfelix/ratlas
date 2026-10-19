@@ -52,3 +52,14 @@ impl World {
         self.objects.iter_mut().filter(move |obj| obj.tag == tag)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_world_initialization() {
+        let world = World::new();
+        assert!(world.objects.is_empty());
+    }
+}

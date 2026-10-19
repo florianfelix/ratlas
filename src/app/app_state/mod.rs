@@ -174,158 +174,45 @@ impl AppState {
 }
 
 #[cfg(test)]
+pub(crate) fn dummy_station(uuid: &str, name: &str) -> radiobrowser::ApiStation {
+    radiobrowser::ApiStation {
+        changeuuid: "".to_string(),
+        stationuuid: uuid.to_string(),
+        serveruuid: None,
+        name: name.to_string(),
+        url: "http://stream.org".to_string(),
+        url_resolved: "http://stream.org".to_string(),
+        homepage: "".to_string(),
+        favicon: "".to_string(),
+        tags: "".to_string(),
+        country: "".to_string(),
+        countrycode: "".to_string(),
+        iso_3166_2: None,
+        state: "".to_string(),
+        language: "".to_string(),
+        languagecodes: None,
+        votes: 0,
+        lastchangetime_iso8601: None,
+        codec: "MP3".to_string(),
+        bitrate: 128,
+        hls: 0,
+        lastcheckok: 1,
+        lastchecktime_iso8601: None,
+        lastcheckoktime_iso8601: None,
+        lastlocalchecktime_iso8601: None,
+        clicktimestamp_iso8601: None,
+        clickcount: 10,
+        clicktrend: 0,
+        ssl_error: Some(0),
+        geo_lat: Some(10.0),
+        geo_long: Some(20.0),
+        has_extended_info: None,
+    }
+}
+
+#[cfg(test)]
 mod tests {
     use super::*;
-
-    fn dummy_station(uuid: &str, name: &str) -> radiobrowser::ApiStation {
-        radiobrowser::ApiStation {
-            changeuuid: "".to_string(),
-            stationuuid: uuid.to_string(),
-            serveruuid: None,
-            name: name.to_string(),
-            url: "http://stream.org".to_string(),
-            url_resolved: "http://stream.org".to_string(),
-            homepage: "".to_string(),
-            favicon: "".to_string(),
-            tags: "".to_string(),
-            country: "".to_string(),
-            countrycode: "".to_string(),
-            iso_3166_2: None,
-            state: "".to_string(),
-            language: "".to_string(),
-            languagecodes: None,
-            votes: 0,
-            lastchangetime_iso8601: None,
-            codec: "MP3".to_string(),
-            bitrate: 128,
-            hls: 0,
-            lastcheckok: 1,
-            lastchecktime_iso8601: None,
-            lastcheckoktime_iso8601: None,
-            lastlocalchecktime_iso8601: None,
-            clicktimestamp_iso8601: None,
-            clickcount: 10,
-            clicktrend: 0,
-            ssl_error: Some(0),
-            geo_lat: Some(10.0),
-            geo_long: Some(20.0),
-            has_extended_info: None,
-        }
-    }
-
-    #[test]
-    fn test_earth_config_and_outlines_toggle() {
-        let mut state = AppState::default();
-        assert!(!state.earth_config.show_country_outlines);
-
-        state.handle_message(&Message::ToggleCountryOutlines);
-        assert!(state.earth_config.show_country_outlines);
-
-        state.handle_message(&Message::SetShowCountryOutlines(false));
-        assert!(!state.earth_config.show_country_outlines);
-
-        state.handle_message(&Message::SetOutlineColor([1.0, 0.0, 0.0, 1.0]));
-        assert_eq!(
-            state.earth_config.outline_color,
-            glam::Vec4::new(1.0, 0.0, 0.0, 1.0)
-        );
-    }
-
-    #[test]
-    fn test_rebuild_station_markers_with_filter() {
-        let mut state = AppState::default();
-        let stations = vec![
-            dummy_station("1", "Station One"),
-            dummy_station("2", "Station Two"),
-        ];
-        state.update_station_markers(stations);
-
-        assert_eq!(state.radio_stations.len(), 2);
-        assert_eq!(state.marker_instances.len(), 2);
-
-        // Filter by Germany (none of dummy match)
-        let mut filter = StationFilter::default();
-        filter.country_code = Some(isocountry::CountryCode::DEU);
-        state.set_station_filter(filter);
-
-        assert_eq!(state.radio_stations.len(), 0);
-        assert_eq!(state.marker_instances.len(), 0);
-    }
-
-    #[test]
-    fn test_spatial_grid_proximity_query() {
-        let mut state = AppState::default();
-        let stations = vec![
-            dummy_station("1", "Station Near"),
-            dummy_station("2", "Station Far"),
-        ];
-        state.update_station_markers(stations);
-
-        // Grid contains stations inserted at sphere coords
-        assert_eq!(state.spatial_grid.cell_count(), 1);
-        let pos = state.marker_instances[0].position;
-        let nearby = state.spatial_grid.query_radius(pos, 0.05);
-        assert!(!nearby.is_empty());
-        assert_eq!(nearby[0].uuid, "1");
-    }
-
-    #[test]
-    fn test_picking_effector_and_hover() {
-        let mut state = AppState::default();
-        let stations = vec![dummy_station("1", "Pick Me")];
-        state.update_station_markers(stations);
-
-        let target_pos = state.marker_instances[0].position;
-        let ray = Ray {
-            origin: target_pos.normalize() * 3.0,
-            direction: -target_pos.normalize(),
-        };
-
-        let picked = state.pick_station(&ray);
-        assert!(picked.is_some());
-        assert_eq!(picked.unwrap().stationuuid, "1");
-
-        // Set hovered station
-        let changed = state.set_hovered_station(Some("1".to_string()));
-        assert!(changed);
-        assert_eq!(state.hovered_station, Some("1".to_string()));
-
-        // Effector scaled the hovered marker up by 1.25
-        assert!((state.marker_instances[0].scale.x - 0.06 * 1.25).abs() < 1e-4);
-    }
-
-    #[test]
-    fn test_tag_search_and_matching() {
-        let mut station = dummy_station("1", "Rock Station");
-        station.tags = "classic rock, 80s, rock".to_string();
-
-        let mut filter = StationFilter::default();
-        filter.tags = vec!["rock".to_string()];
-        assert!(filter.matches(&station));
-
-        filter.tags = vec!["jazz".to_string()];
-        assert!(!filter.matches(&station));
-
-        // Multi-tag matching AND vs OR
-        filter.tags = vec!["rock".to_string(), "jazz".to_string()];
-        filter.tag_match_mode = TagMatchMode::And;
-        assert!(!filter.matches(&station));
-
-        filter.tag_match_mode = TagMatchMode::Or;
-        assert!(filter.matches(&station));
-    }
-
-    #[test]
-    fn test_tag_match_mode_toggle_message() {
-        let mut state = AppState::default();
-        assert_eq!(state.station_filter.tag_match_mode, TagMatchMode::And);
-
-        state.handle_message(&Message::ToggleTagMatchMode);
-        assert_eq!(state.station_filter.tag_match_mode, TagMatchMode::Or);
-
-        state.handle_message(&Message::ToggleTagMatchMode);
-        assert_eq!(state.station_filter.tag_match_mode, TagMatchMode::And);
-    }
 
     #[test]
     fn test_theme_selected_message() {

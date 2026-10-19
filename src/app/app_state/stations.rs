@@ -133,3 +133,30 @@ impl AppState {
         self.playing_station = uuid;
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::app::app_state::{dummy_station, filters::StationFilter};
+
+    #[test]
+    fn test_rebuild_station_markers_with_filter() {
+        let mut state = AppState::default();
+        let stations = vec![
+            dummy_station("1", "Station One"),
+            dummy_station("2", "Station Two"),
+        ];
+        state.update_station_markers(stations);
+
+        assert_eq!(state.radio_stations.len(), 2);
+        assert_eq!(state.marker_instances.len(), 2);
+
+        // Filter by Germany (none of dummy match)
+        let mut filter = StationFilter::default();
+        filter.country_code = Some(isocountry::CountryCode::DEU);
+        state.set_station_filter(filter);
+
+        assert_eq!(state.radio_stations.len(), 0);
+        assert_eq!(state.marker_instances.len(), 0);
+    }
+}

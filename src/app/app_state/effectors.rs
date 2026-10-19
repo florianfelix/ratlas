@@ -104,3 +104,34 @@ impl AppState {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::app::app_state::{dummy_station, Ray};
+
+    #[test]
+    fn test_picking_effector_and_hover() {
+        let mut state = AppState::default();
+        let stations = vec![dummy_station("1", "Pick Me")];
+        state.update_station_markers(stations);
+
+        let target_pos = state.marker_instances[0].position;
+        let ray = Ray {
+            origin: target_pos.normalize() * 3.0,
+            direction: -target_pos.normalize(),
+        };
+
+        let picked = state.pick_station(&ray);
+        assert!(picked.is_some());
+        assert_eq!(picked.unwrap().stationuuid, "1");
+
+        // Set hovered station
+        let changed = state.set_hovered_station(Some("1".to_string()));
+        assert!(changed);
+        assert_eq!(state.hovered_station, Some("1".to_string()));
+
+        // Effector scaled the hovered marker up by 1.25
+        assert!((state.marker_instances[0].scale.x - 0.06 * 1.25).abs() < 1e-4);
+    }
+}

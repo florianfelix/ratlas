@@ -123,3 +123,43 @@ impl std::fmt::Display for StationLimit {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::app::app_state::dummy_station;
+    use crate::app::ui::Message;
+
+    #[test]
+    fn test_tag_search_and_matching() {
+        let mut station = dummy_station("1", "Rock Station");
+        station.tags = "classic rock, 80s, rock".to_string();
+
+        let mut filter = StationFilter::default();
+        filter.tags = vec!["rock".to_string()];
+        assert!(filter.matches(&station));
+
+        filter.tags = vec!["jazz".to_string()];
+        assert!(!filter.matches(&station));
+
+        // Multi-tag matching AND vs OR
+        filter.tags = vec!["rock".to_string(), "jazz".to_string()];
+        filter.tag_match_mode = TagMatchMode::And;
+        assert!(!filter.matches(&station));
+
+        filter.tag_match_mode = TagMatchMode::Or;
+        assert!(filter.matches(&station));
+    }
+
+    #[test]
+    fn test_tag_match_mode_toggle_message() {
+        let mut state = AppState::default();
+        assert_eq!(state.station_filter.tag_match_mode, TagMatchMode::And);
+
+        state.handle_message(&Message::ToggleTagMatchMode);
+        assert_eq!(state.station_filter.tag_match_mode, TagMatchMode::Or);
+
+        state.handle_message(&Message::ToggleTagMatchMode);
+        assert_eq!(state.station_filter.tag_match_mode, TagMatchMode::And);
+    }
+}
