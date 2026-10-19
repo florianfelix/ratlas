@@ -60,7 +60,7 @@ impl Default for UiState {
             tag_search_query: String::new(),
             api_tags: Vec::new(),
             earth_config: EarthConfig::default(),
-            active_theme: iced::Theme::Moonfly,
+            active_theme: iced::Theme::Dark,
         }
     }
 }
