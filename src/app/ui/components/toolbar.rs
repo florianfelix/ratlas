@@ -1,5 +1,5 @@
 use crate::app::{
-    app_state::filters::StationLimit,
+    app_state::stations::StationLimit,
     ui::{Element, Message, UiState},
 };
 #[allow(unused)]

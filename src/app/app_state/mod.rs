@@ -1,22 +1,15 @@
-use std::collections::HashMap;
-
 use crate::{
     app::{
-        app_state::{
-            earth::EarthConfig,
-            filters::{StationFilter, StationLimit, TagMatchMode},
-            world::World,
-        },
+        app_state::{earth::EarthConfig, world::World},
         ui::Message,
     },
-    data::{Effector, MarkerInstance, RenderObject},
+    data::{Effector, MarkerInstance},
 };
 
 pub mod camera;
 pub mod canvas_renderer;
 pub mod earth;
 pub mod effectors;
-pub mod filters;
 pub mod gpu;
 pub mod spatial_grid;
 pub mod stations;
@@ -24,16 +17,14 @@ pub mod world;
 
 pub use camera::{Camera, Ray};
 pub use spatial_grid::{GlobeSpatialGrid, SpatialStation};
-pub use stations::Stations;
+#[allow(unused_imports)]
+pub use stations::{StationFilter, StationLimit, Stations, TagMatchMode};
 
 pub struct AppState {
     pub world: World,
     pub camera: Camera,
     pub earth_config: EarthConfig,
     pub stations: Stations,
-    pub station_filter: StationFilter,
-    pub api_tags: Vec<radiobrowser::ApiTag>,
-    pub station_limit: StationLimit,
     pub marker_instances: Vec<MarkerInstance>,
     pub spatial_grid: GlobeSpatialGrid,
     pub mouse_globe_pos: Option<glam::Vec3>,
@@ -61,9 +52,6 @@ impl Default for AppState {
             camera: Camera::default(),
             earth_config: EarthConfig::default(),
             stations: Stations::default(),
-            station_filter: StationFilter::default(),
-            api_tags: Vec::new(),
-            station_limit: StationLimit::default(),
             marker_instances: Vec::new(),
             spatial_grid: GlobeSpatialGrid::default(),
             mouse_globe_pos: None,
@@ -106,36 +94,22 @@ impl AppState {
                 // Handled in UI state
             }
             Message::AddTagFilter(tag) => {
-                if !self
-                    .station_filter
-                    .tags
-                    .iter()
-                    .any(|t| t.eq_ignore_ascii_case(tag))
-                {
-                    self.station_filter.tags.push(tag.clone());
+                if self.stations.add_tag_filter(tag.clone()) {
                     self.rebuild_station_markers();
                 }
             }
             Message::RemoveTagFilter(tag) => {
-                let prev_len = self.station_filter.tags.len();
-                self.station_filter
-                    .tags
-                    .retain(|t| !t.eq_ignore_ascii_case(tag));
-                if self.station_filter.tags.len() != prev_len {
+                if self.stations.remove_tag_filter(tag) {
                     self.rebuild_station_markers();
                 }
             }
             Message::SetTagMatchMode(mode) => {
-                if self.station_filter.tag_match_mode != *mode {
-                    self.station_filter.tag_match_mode = *mode;
+                if self.stations.set_tag_match_mode(*mode) {
                     self.rebuild_station_markers();
                 }
             }
             Message::ToggleTagMatchMode => {
-                self.station_filter.tag_match_mode = match self.station_filter.tag_match_mode {
-                    TagMatchMode::And => TagMatchMode::Or,
-                    TagMatchMode::Or => TagMatchMode::And,
-                };
+                self.stations.toggle_tag_match_mode();
                 self.rebuild_station_markers();
             }
             Message::ToggleCountryOutlines => {

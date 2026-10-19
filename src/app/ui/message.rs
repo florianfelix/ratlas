@@ -3,7 +3,7 @@ use tracing::info;
 
 use crate::app::app_state::{
     earth::EarthBaseTexture,
-    filters::{StationFilter, StationLimit, TagMatchMode},
+    stations::{StationFilter, StationLimit, TagMatchMode},
 };
 
 use super::UiState;

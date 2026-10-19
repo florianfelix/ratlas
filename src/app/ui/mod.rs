@@ -4,7 +4,7 @@ use winit::window::Window;
 use crate::app::app_state::{
     AppState,
     earth::EarthConfig,
-    filters::{StationFilter, StationLimit},
+    stations::{StationFilter, StationLimit},
     gpu::Gpu,
 };
 use iced_winit::program::Program;
@@ -173,13 +173,13 @@ impl IcedUi {
             .cloned();
         self.state.playing_station = state.stations.playing_station().cloned();
         self.state.playback_status = Some(state.playback_status.clone());
-        self.state.station_limit = state.station_limit;
-        self.state.station_filter = state.station_filter.clone();
+        self.state.station_limit = state.stations.limit;
+        self.state.station_filter = state.stations.filter.clone();
         self.state.displayed_stations_count = state.stations.filtered.len();
         self.state.total_stations_count = state.stations.all.len();
         self.state.earth_config = state.earth_config.clone();
-        if self.state.api_tags.len() != state.api_tags.len() {
-            self.state.api_tags = state.api_tags.clone();
+        if self.state.api_tags.len() != state.stations.tags.len() {
+            self.state.api_tags = state.stations.tags.clone();
         }
         self.state.mouse_pos = state.mouse_pos;
         self.state.active_theme = state.active_theme.clone();

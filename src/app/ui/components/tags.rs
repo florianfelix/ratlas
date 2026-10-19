@@ -5,7 +5,7 @@ use iced::{
 };
 
 use crate::app::{
-    app_state::filters::TagMatchMode,
+    app_state::stations::TagMatchMode,
     ui::{Element, Message, UiState},
 };
 

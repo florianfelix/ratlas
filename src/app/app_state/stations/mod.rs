@@ -1,3 +1,11 @@
+pub mod filter;
+pub mod limit;
+pub mod tags;
+
+pub use filter::StationFilter;
+pub use limit::StationLimit;
+pub use tags::TagMatchMode;
+
 use crate::{
     app::app_state::{AppState, Camera, Ray, SpatialStation},
     data::{MarkerInstance, RenderObject},
@@ -7,6 +15,9 @@ use crate::{
 pub struct Stations {
     pub all: Vec<radiobrowser::ApiStation>,
     pub filtered: Vec<radiobrowser::ApiStation>,
+    pub filter: StationFilter,
+    pub limit: StationLimit,
+    pub tags: Vec<radiobrowser::ApiTag>,
     pub hovered: Option<String>,  // stationuuid
     pub selected: Option<String>, // stationuuid
     pub playing: Option<String>,  // stationuuid
@@ -63,22 +74,100 @@ impl Stations {
         self.selected = uuid;
         true
     }
+
+    /// Updates station limit. Returns true if the limit changed.
+    pub fn set_limit(&mut self, limit: StationLimit) -> bool {
+        if self.limit != limit {
+            self.limit = limit;
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Updates station filter. Returns (filter_changed, country_changed).
+    pub fn set_filter(&mut self, filter: StationFilter) -> (bool, bool) {
+        if self.filter != filter {
+            let country_changed =
+                self.filter.country_code != filter.country_code && filter.country_code.is_some();
+            self.filter = filter;
+            (true, country_changed)
+        } else {
+            (false, false)
+        }
+    }
+
+    /// Adds a tag to the station filter if not already present. Returns true if added.
+    pub fn add_tag_filter(&mut self, tag: String) -> bool {
+        if !self
+            .filter
+            .tags
+            .iter()
+            .any(|t| t.eq_ignore_ascii_case(&tag))
+        {
+            self.filter.tags.push(tag);
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Removes a tag from the station filter. Returns true if removed.
+    pub fn remove_tag_filter(&mut self, tag: &str) -> bool {
+        let prev_len = self.filter.tags.len();
+        self.filter.tags.retain(|t| !t.eq_ignore_ascii_case(tag));
+        self.filter.tags.len() != prev_len
+    }
+
+    /// Sets the tag match mode. Returns true if changed.
+    pub fn set_tag_match_mode(&mut self, mode: TagMatchMode) -> bool {
+        if self.filter.tag_match_mode != mode {
+            self.filter.tag_match_mode = mode;
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Toggles the tag match mode between AND and OR.
+    pub fn toggle_tag_match_mode(&mut self) {
+        self.filter.tag_match_mode = match self.filter.tag_match_mode {
+            TagMatchMode::And => TagMatchMode::Or,
+            TagMatchMode::Or => TagMatchMode::And,
+        };
+    }
 }
 
 impl AppState {
+    pub fn set_station_limit(&mut self, limit: StationLimit) {
+        if self.stations.set_limit(limit) {
+            self.rebuild_station_markers();
+        }
+    }
+
+    pub fn set_station_filter(&mut self, filter: StationFilter) {
+        let (filter_changed, country_changed) = self.stations.set_filter(filter);
+        if filter_changed {
+            self.rebuild_station_markers();
+            if country_changed {
+                self.focus_on_country();
+            }
+        }
+    }
+
     pub fn update_station_markers(&mut self, stations: Vec<radiobrowser::ApiStation>) {
         self.stations.all = stations;
         self.rebuild_station_markers();
     }
 
     pub fn rebuild_station_markers(&mut self) {
-        let limit = self.station_limit.to_count();
+        let limit = self.stations.limit.to_count();
         self.stations.filtered = match limit {
             Some(max) => self
                 .stations
                 .all
                 .iter()
-                .filter(|s| self.station_filter.matches(s))
+                .filter(|s| self.stations.filter.matches(s))
                 .take(max)
                 .cloned()
                 .collect(),
@@ -86,7 +175,7 @@ impl AppState {
                 .stations
                 .all
                 .iter()
-                .filter(|s| self.station_filter.matches(s))
+                .filter(|s| self.stations.filter.matches(s))
                 .cloned()
                 .collect(),
         };
@@ -181,7 +270,7 @@ impl AppState {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::app::app_state::{dummy_station, filters::StationFilter};
+    use crate::app::{app_state::dummy_station, ui::Message};
 
     #[test]
     fn test_rebuild_station_markers_with_filter() {
@@ -233,5 +322,40 @@ mod tests {
         assert!(stations.set_selected(Some("2".to_string())));
         assert!(!stations.set_selected(Some("2".to_string())));
         assert_eq!(stations.selected.as_deref(), Some("2"));
+
+        assert!(stations.set_limit(StationLimit::Limit5000));
+        assert!(!stations.set_limit(StationLimit::Limit5000));
+        assert_eq!(stations.limit, StationLimit::Limit5000);
+
+        let mut f = StationFilter::default();
+        f.country_code = Some(isocountry::CountryCode::FRA);
+        let (filter_changed, country_changed) = stations.set_filter(f);
+        assert!(filter_changed);
+        assert!(country_changed);
+
+        assert!(stations.add_tag_filter("jazz".to_string()));
+        assert!(!stations.add_tag_filter("jazz".to_string()));
+        assert_eq!(stations.filter.tags, vec!["jazz".to_string()]);
+
+        assert!(stations.set_tag_match_mode(TagMatchMode::Or));
+        assert_eq!(stations.filter.tag_match_mode, TagMatchMode::Or);
+        stations.toggle_tag_match_mode();
+        assert_eq!(stations.filter.tag_match_mode, TagMatchMode::And);
+
+        assert!(stations.remove_tag_filter("jazz"));
+        assert!(!stations.remove_tag_filter("jazz"));
+        assert!(stations.filter.tags.is_empty());
+    }
+
+    #[test]
+    fn test_tag_match_mode_toggle_message() {
+        let mut state = AppState::default();
+        assert_eq!(state.stations.filter.tag_match_mode, TagMatchMode::And);
+
+        state.handle_message(&Message::ToggleTagMatchMode);
+        assert_eq!(state.stations.filter.tag_match_mode, TagMatchMode::Or);
+
+        state.handle_message(&Message::ToggleTagMatchMode);
+        assert_eq!(state.stations.filter.tag_match_mode, TagMatchMode::And);
     }
 }

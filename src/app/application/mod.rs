@@ -159,7 +159,7 @@ impl ApplicationHandler<ProxyMessage> for Ratlas {
             ProxyMessage::RadioStationTags(tags) => {
                 tracing::info!("Retrieved {} tags", tags.len());
                 if let Self::Running { state, .. } = self {
-                    state.api_tags = tags;
+                    state.stations.tags = tags;
                 }
             }
             ProxyMessage::PlaybackStatusChanged(status) => {
