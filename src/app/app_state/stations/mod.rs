@@ -3,24 +3,88 @@ use crate::{
     data::{MarkerInstance, RenderObject},
 };
 
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct Stations {
+    pub all: Vec<radiobrowser::ApiStation>,
+    pub filtered: Vec<radiobrowser::ApiStation>,
+    pub hovered: Option<String>,  // stationuuid
+    pub selected: Option<String>, // stationuuid
+    pub playing: Option<String>,  // stationuuid
+}
+
+impl Stations {
+    #[allow(dead_code)]
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Looks up a station by UUID across all stations, falling back to filtered stations.
+    pub fn find_station(&self, uuid: &str) -> Option<&radiobrowser::ApiStation> {
+        self.all
+            .iter()
+            .find(|s| s.stationuuid == uuid)
+            .or_else(|| self.filtered.iter().find(|s| s.stationuuid == uuid))
+    }
+
+    /// Finds a station by URL or resolved stream URL.
+    pub fn find_by_url(&self, url: &str) -> Option<&radiobrowser::ApiStation> {
+        self.all
+            .iter()
+            .chain(self.filtered.iter())
+            .find(|s| s.url == url || s.url_resolved == url)
+    }
+
+    /// Returns a reference to the currently playing station, if any.
+    pub fn playing_station(&self) -> Option<&radiobrowser::ApiStation> {
+        self.playing.as_ref().and_then(|id| self.find_station(id))
+    }
+
+    /// Sets or clears the currently playing station UUID.
+    pub fn set_playing_station(&mut self, uuid: Option<String>) {
+        self.playing = uuid;
+    }
+
+    /// Sets the hovered station UUID without triggering effector updates.
+    /// Returns true if the hover state changed.
+    pub fn set_hovered(&mut self, uuid: Option<String>) -> bool {
+        if self.hovered == uuid {
+            return false;
+        }
+        self.hovered = uuid;
+        true
+    }
+
+    /// Sets the selected station UUID without triggering effector updates.
+    /// Returns true if the selected state changed.
+    pub fn set_selected(&mut self, uuid: Option<String>) -> bool {
+        if self.selected == uuid {
+            return false;
+        }
+        self.selected = uuid;
+        true
+    }
+}
+
 impl AppState {
     pub fn update_station_markers(&mut self, stations: Vec<radiobrowser::ApiStation>) {
-        self.all_radio_stations = stations;
+        self.stations.all = stations;
         self.rebuild_station_markers();
     }
 
     pub fn rebuild_station_markers(&mut self) {
         let limit = self.station_limit.to_count();
-        self.radio_stations = match limit {
+        self.stations.filtered = match limit {
             Some(max) => self
-                .all_radio_stations
+                .stations
+                .all
                 .iter()
                 .filter(|s| self.station_filter.matches(s))
                 .take(max)
                 .cloned()
                 .collect(),
             None => self
-                .all_radio_stations
+                .stations
+                .all
                 .iter()
                 .filter(|s| self.station_filter.matches(s))
                 .cloned()
@@ -36,9 +100,9 @@ impl AppState {
         let sphere_radius = 1.002_f32;
         let marker_scale = glam::Vec3::splat(0.06);
 
-        self.marker_instances.reserve(self.radio_stations.len());
+        self.marker_instances.reserve(self.stations.filtered.len());
 
-        for station in &self.radio_stations {
+        for station in &self.stations.filtered {
             let (Some(lat), Some(lon)) = (station.geo_lat, station.geo_long) else {
                 continue;
             };
@@ -88,49 +152,29 @@ impl AppState {
             .unwrap_or(0.02);
 
         let (station, _) = self.spatial_grid.query_closest(globe_hit, picker_radius)?;
-        self.find_station(&station.uuid)
-    }
-
-    /// Looks up a station by UUID
-    pub fn find_station(&self, uuid: &str) -> Option<&radiobrowser::ApiStation> {
-        self.all_radio_stations
-            .iter()
-            .find(|s| s.stationuuid == uuid)
-            .or_else(|| self.radio_stations.iter().find(|s| s.stationuuid == uuid))
+        self.stations.find_station(&station.uuid)
     }
 
     /// Updates hover state and triggers effector updates.
     /// Returns true if the hover state changed.
     pub fn set_hovered_station(&mut self, uuid: Option<String>) -> bool {
-        if self.hovered_station == uuid {
-            return false;
+        if self.stations.set_hovered(uuid) {
+            self.apply_effectors();
+            true
+        } else {
+            false
         }
-        self.hovered_station = uuid;
-        self.apply_effectors();
-        true
     }
 
     /// Sets the currently selected station and triggers effector updates.
     /// Returns true if the selected state changed.
     pub fn set_selected_station(&mut self, uuid: Option<String>) -> bool {
-        if self.selected_station == uuid {
-            return false;
+        if self.stations.set_selected(uuid) {
+            self.apply_effectors();
+            true
+        } else {
+            false
         }
-        self.selected_station = uuid;
-        self.apply_effectors();
-        true
-    }
-
-    /// Returns a reference to the currently playing station, if any.
-    pub fn playing_station(&self) -> Option<&radiobrowser::ApiStation> {
-        self.playing_station
-            .as_ref()
-            .and_then(|id| self.find_station(id))
-    }
-
-    /// Sets or clears the currently playing station.
-    pub fn set_playing_station(&mut self, uuid: Option<String>) {
-        self.playing_station = uuid;
     }
 }
 
@@ -148,7 +192,7 @@ mod tests {
         ];
         state.update_station_markers(stations);
 
-        assert_eq!(state.radio_stations.len(), 2);
+        assert_eq!(state.stations.filtered.len(), 2);
         assert_eq!(state.marker_instances.len(), 2);
 
         // Filter by Germany (none of dummy match)
@@ -156,7 +200,38 @@ mod tests {
         filter.country_code = Some(isocountry::CountryCode::DEU);
         state.set_station_filter(filter);
 
-        assert_eq!(state.radio_stations.len(), 0);
+        assert_eq!(state.stations.filtered.len(), 0);
         assert_eq!(state.marker_instances.len(), 0);
+    }
+
+    #[test]
+    fn test_stations_struct_methods() {
+        let mut stations = Stations::new();
+        let s1 = dummy_station("1", "Station One");
+        let s2 = dummy_station("2", "Station Two");
+        stations.all = vec![s1.clone()];
+        stations.filtered = vec![s2.clone()];
+
+        assert_eq!(stations.find_station("1").unwrap().name, "Station One");
+        assert_eq!(stations.find_station("2").unwrap().name, "Station Two");
+        assert!(stations.find_station("3").is_none());
+
+        assert_eq!(
+            stations.find_by_url("http://stream.org").unwrap().name,
+            "Station One"
+        );
+
+        assert!(stations.playing_station().is_none());
+        stations.set_playing_station(Some("1".to_string()));
+        assert_eq!(stations.playing_station().unwrap().name, "Station One");
+        assert_eq!(stations.playing.as_deref(), Some("1"));
+
+        assert!(stations.set_hovered(Some("1".to_string())));
+        assert!(!stations.set_hovered(Some("1".to_string())));
+        assert_eq!(stations.hovered.as_deref(), Some("1"));
+
+        assert!(stations.set_selected(Some("2".to_string())));
+        assert!(!stations.set_selected(Some("2".to_string())));
+        assert_eq!(stations.selected.as_deref(), Some("2"));
     }
 }

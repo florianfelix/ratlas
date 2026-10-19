@@ -162,21 +162,21 @@ impl IcedUi {
     /// Syncs relevant presentation state from AppState into UiState before rendering
     pub fn apply_appstate(&mut self, state: &AppState) {
         self.state.hovered_station_full = state
-            .hovered_station
+            .stations.hovered
             .as_ref()
-            .and_then(|id| state.find_station(id))
+            .and_then(|id| state.stations.find_station(id))
             .cloned();
         self.state.selected_station = state
-            .selected_station
+            .stations.selected
             .as_ref()
-            .and_then(|id| state.find_station(id))
+            .and_then(|id| state.stations.find_station(id))
             .cloned();
-        self.state.playing_station = state.playing_station().cloned();
+        self.state.playing_station = state.stations.playing_station().cloned();
         self.state.playback_status = Some(state.playback_status.clone());
         self.state.station_limit = state.station_limit;
         self.state.station_filter = state.station_filter.clone();
-        self.state.displayed_stations_count = state.radio_stations.len();
-        self.state.total_stations_count = state.all_radio_stations.len();
+        self.state.displayed_stations_count = state.stations.filtered.len();
+        self.state.total_stations_count = state.stations.all.len();
         self.state.earth_config = state.earth_config.clone();
         if self.state.api_tags.len() != state.api_tags.len() {
             self.state.api_tags = state.api_tags.clone();

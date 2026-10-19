@@ -84,7 +84,7 @@ impl AppState {
         }
 
         // Apply hover and selection highlights
-        if let Some(ref hovered_id) = self.hovered_station {
+        if let Some(ref hovered_id) = self.stations.hovered {
             for marker in &mut self.marker_instances {
                 if &marker.id == hovered_id {
                     marker.scale *= 1.25;
@@ -93,7 +93,7 @@ impl AppState {
                 }
             }
         }
-        if let Some(ref selected_id) = self.selected_station {
+        if let Some(ref selected_id) = self.stations.selected {
             for marker in &mut self.marker_instances {
                 if &marker.id == selected_id {
                     marker.scale *= 1.15;
@@ -129,7 +129,7 @@ mod tests {
         // Set hovered station
         let changed = state.set_hovered_station(Some("1".to_string()));
         assert!(changed);
-        assert_eq!(state.hovered_station, Some("1".to_string()));
+        assert_eq!(state.stations.hovered, Some("1".to_string()));
 
         // Effector scaled the hovered marker up by 1.25
         assert!((state.marker_instances[0].scale.x - 0.06 * 1.25).abs() < 1e-4);

@@ -30,19 +30,14 @@ pub fn update_ui(
                     .send(crate::playback::PlaybackMessage::TogglePlayPause);
             }
             Message::StopPlayback => {
-                state.set_playing_station(None);
+                state.stations.set_playing_station(None);
                 let _ = channels
                     .tx_playback
                     .send(crate::playback::PlaybackMessage::Stop);
             }
             Message::PlayStation { url, name } => {
-                if let Some(station) = state
-                    .all_radio_stations
-                    .iter()
-                    .chain(state.radio_stations.iter())
-                    .find(|s| &s.url == url || &s.url_resolved == url)
-                {
-                    state.set_playing_station(Some(station.stationuuid.clone()));
+                if let Some(station) = state.stations.find_by_url(url) {
+                    state.stations.set_playing_station(Some(station.stationuuid.clone()));
                 }
                 let _ = channels
                     .tx_playback

@@ -24,6 +24,7 @@ pub mod world;
 
 pub use camera::{Camera, Ray};
 pub use spatial_grid::{GlobeSpatialGrid, SpatialStation};
+pub use stations::Stations;
 
 pub struct AppState {
     pub world: World,
@@ -31,16 +32,12 @@ pub struct AppState {
     pub objects: HashMap<String, RenderObject>,
     pub camera: Camera,
     pub earth_config: EarthConfig,
-    pub all_radio_stations: Vec<radiobrowser::ApiStation>,
-    pub radio_stations: Vec<radiobrowser::ApiStation>,
+    pub stations: Stations,
     pub station_filter: StationFilter,
     pub api_tags: Vec<radiobrowser::ApiTag>,
     pub station_limit: StationLimit,
     pub marker_instances: Vec<MarkerInstance>,
     pub spatial_grid: GlobeSpatialGrid,
-    pub hovered_station: Option<String>,  // stationuuid
-    pub selected_station: Option<String>, // stationuuid
-    pub playing_station: Option<String>,  // stationuuid
     pub mouse_globe_pos: Option<glam::Vec3>,
     pub mouse_pos: Option<glam::Vec2>,
     pub effectors: Vec<Effector>,
@@ -66,16 +63,12 @@ impl Default for AppState {
             objects: HashMap::new(),
             camera: Camera::default(),
             earth_config: EarthConfig::default(),
-            all_radio_stations: Vec::new(),
-            radio_stations: Vec::new(),
+            stations: Stations::default(),
             station_filter: StationFilter::default(),
             api_tags: Vec::new(),
             station_limit: StationLimit::default(),
             marker_instances: Vec::new(),
             spatial_grid: GlobeSpatialGrid::default(),
-            hovered_station: None,
-            selected_station: None,
-            playing_station: None,
             mouse_globe_pos: None,
             mouse_pos: None,
             effectors,

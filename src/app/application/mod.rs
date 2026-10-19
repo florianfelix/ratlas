@@ -169,7 +169,7 @@ impl ApplicationHandler<ProxyMessage> for Ratlas {
                         status,
                         PlaybackStatus::Stopped | PlaybackStatus::Error { .. }
                     ) {
-                        state.set_playing_station(None);
+                        state.stations.set_playing_station(None);
                     }
                     state.playback_status = status;
                     if let Some(w) = window {
