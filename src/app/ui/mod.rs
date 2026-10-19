@@ -4,8 +4,8 @@ use winit::window::Window;
 use crate::app::app_state::{
     AppState,
     earth::EarthConfig,
-    stations::{StationFilter, StationLimit},
     gpu::Gpu,
+    stations::{StationFilter, StationLimit},
 };
 use iced_winit::program::Program;
 
@@ -60,7 +60,7 @@ impl Default for UiState {
             tag_search_query: String::new(),
             api_tags: Vec::new(),
             earth_config: EarthConfig::default(),
-            active_theme: iced::Theme::Dark,
+            active_theme: iced::Theme::Moonfly,
         }
     }
 }
@@ -162,12 +162,14 @@ impl IcedUi {
     /// Syncs relevant presentation state from AppState into UiState before rendering
     pub fn apply_appstate(&mut self, state: &AppState) {
         self.state.hovered_station_full = state
-            .stations.hovered
+            .stations
+            .hovered
             .as_ref()
             .and_then(|id| state.stations.find_station(id))
             .cloned();
         self.state.selected_station = state
-            .stations.selected
+            .stations
+            .selected
             .as_ref()
             .and_then(|id| state.stations.find_station(id))
             .cloned();
