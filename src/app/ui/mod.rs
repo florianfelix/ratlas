@@ -1,7 +1,7 @@
 use std::sync::Arc;
 use winit::window::Window;
 
-use crate::app::app_state::{AppState, EarthConfig, StationFilter, gpu::Gpu};
+use crate::app::app_state::{AppState, StationFilter, earth::EarthConfig, gpu::Gpu};
 use iced_winit::program::Program;
 
 pub mod components;
