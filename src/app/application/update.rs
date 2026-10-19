@@ -36,8 +36,15 @@ pub fn update_ui(
                     .send(crate::playback::PlaybackMessage::Stop);
             }
             Message::PlayStation { url, name } => {
-                if let Some(station) = state.stations.find_by_url(url) {
-                    state.stations.set_playing_station(Some(station.stationuuid.clone()));
+                let station_uuid = state
+                    .stations
+                    .find_by_url(url)
+                    .map(|s| s.stationuuid.clone());
+                if let Some(ref uuid) = station_uuid {
+                    state.stations.set_playing_station(Some(uuid.clone()));
+                    let _ = channels.tx_radio.send(
+                        crate::app::application::RadioMessage::RecordStationClick(uuid.clone()),
+                    );
                 }
                 let _ = channels
                     .tx_playback

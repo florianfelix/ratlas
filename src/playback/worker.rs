@@ -5,8 +5,8 @@ use tokio::sync::mpsc;
 use winit::event_loop::EventLoopProxy;
 
 use super::adts::{AdtsNormalizer, find_first_adts_frame, is_adts_stream};
-use super::playlist::parse_playlist_target;
 use super::opus::OpusSource;
+use super::playlist::parse_playlist_target;
 use super::reader::ChannelReader;
 use super::types::{PlaybackMessage, PlaybackStatus};
 use crate::app::application::ProxyMessage;
@@ -171,7 +171,7 @@ impl PlaybackWorker {
         let client = reqwest::Client::builder()
             .connect_timeout(std::time::Duration::from_secs(10))
             .read_timeout(std::time::Duration::from_secs(15))
-            .user_agent("Ratlas/0.1.0 (RadioAtlas Audio Streamer)")
+            .user_agent(crate::radio_api::APP_USER_AGENT)
             .build()
             .unwrap_or_default();
 

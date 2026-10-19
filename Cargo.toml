@@ -28,7 +28,7 @@ tobj = "4.0.5"
 image = { version = "0.25.10", features = ["jpeg", "png"] }
 tokio = { version = "1.53.3", features = ["full"] }
 serde_json = { version = "1.0.154", features = ["preserve_order"] }
-reqwest = { version = "0.13.5", features = ["cookies", "blocking"] }
+reqwest = { version = "0.13.5", features = ["cookies", "blocking", "json"] }
 radiobrowser = "0.6.1"
 rodio = "0.23.0"
 tray-icon = { version = "0.26.1", default-features = false, features = ["ksni"] }

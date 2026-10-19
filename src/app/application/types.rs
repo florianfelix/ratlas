@@ -5,6 +5,7 @@ pub enum RadioMessage {
     GetPopular,
     ForceRefresh,
     GetTags,
+    RecordStationClick(String),
 }
 
 #[derive(Clone)]

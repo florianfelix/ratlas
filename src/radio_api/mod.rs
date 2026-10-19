@@ -1,10 +1,15 @@
 pub mod cache;
 
 use radiobrowser::RadioBrowserAPI;
+use std::sync::Arc;
 use tokio::runtime::Builder;
 use winit::event_loop::EventLoopProxy;
 
 use crate::app::application::{ProxyMessage, RadioMessage};
+
+/// Standard User-Agent header sent to the Radio-Browser API and streaming servers.
+/// Radio-Browser requests client applications send a speaking HTTP user agent string (e.g. app/version).
+pub const APP_USER_AGENT: &str = concat!("ratlas/", env!("CARGO_PKG_VERSION"));
 
 /// Filters out HLS (.m3u8) stations that require segmented chunk streaming,
 /// ensuring only direct audio streams (MP3, AAC, OGG, FLAC, M3U/PLS redirects)
@@ -34,56 +39,129 @@ struct RadioStations {
     #[allow(dead_code)]
     stations: Vec<radiobrowser::ApiStation>,
     api: RadioBrowserAPI,
+    http_client: reqwest::Client,
+    servers: Arc<[String]>,
 }
 
-fn create_api() -> RadioBrowserAPI {
-    pollster::block_on(async {
-        let api_result = radiobrowser::RadioBrowserAPI::new().await;
+async fn init_api_and_servers() -> (RadioBrowserAPI, Vec<String>) {
+    let servers = match RadioBrowserAPI::get_default_servers().await {
+        Ok(s) if !s.is_empty() => s,
+        _ => vec![
+            "all.api.radio-browser.info".to_string(),
+            "de1.api.radio-browser.info".to_string(),
+        ],
+    };
 
-        match api_result {
-            Ok(api) => api,
-            Err(e) => {
-                tracing::warn!(
-                    "RadioBrowserAPI::new() failed ({:?}), falling back to direct server...",
-                    e
-                );
+    let api_result = radiobrowser::RadioBrowserAPI::new().await;
+    let api = match api_result {
+        Ok(api) => api,
+        Err(e) => {
+            tracing::warn!(
+                "RadioBrowserAPI::new() failed ({:?}), falling back to direct server...",
+                e
+            );
 
-                match radiobrowser::RadioBrowserAPI::new_from_dns_a("all.api.radio-browser.info")
-                    .await
-                {
-                    Ok(api) => Ok(api),
-                    Err(e) => {
-                        tracing::error!("Failed to initialize RadioBrowserAPI: {:?}", e);
-                        Err(anyhow::anyhow!(
-                            "Failed to initialize RadioBrowserAPI: {:?}",
-                            e
-                        ))
-                    }
+            match radiobrowser::RadioBrowserAPI::new_from_dns_a("all.api.radio-browser.info").await
+            {
+                Ok(api) => api,
+                Err(e) => {
+                    tracing::error!("Failed to initialize RadioBrowserAPI: {:?}", e);
+                    panic!("useless without api: {:?}", e);
                 }
-                .expect("useless without api")
             }
         }
-    })
+    };
+
+    (api, servers)
+}
+
+/// Sends a /json/url/{stationuuid} request to Radio-Browser to record a user click/play
+/// and update popularity statistics in the directory database using our speaking User-Agent.
+async fn record_station_click(
+    client: &reqwest::Client,
+    servers: Arc<[String]>,
+    stationuuid: String,
+) {
+    if stationuuid.is_empty() {
+        return;
+    }
+
+    tracing::info!(
+        "Radio API: recording click for station {} with agent '{}'",
+        stationuuid,
+        APP_USER_AGENT
+    );
+
+    for server in servers.iter() {
+        let url = format!("https://{}/json/url/{}", server, stationuuid);
+        match client.post(&url).send().await {
+            Ok(resp) if resp.status().is_success() => {
+                match resp.json::<radiobrowser::ApiStationClickResult>().await {
+                    Ok(res) => {
+                        tracing::info!(
+                            "Radio API: click recorded for station {} (ok: {}, msg: '{}')",
+                            stationuuid,
+                            res.ok,
+                            res.message
+                        );
+                    }
+                    Err(_) => {
+                        tracing::debug!(
+                            "Radio API: click recorded for station {} (status 200)",
+                            stationuuid
+                        );
+                    }
+                }
+                return;
+            }
+            Ok(resp) => {
+                tracing::warn!(
+                    "Radio API: server {} returned status {} for click {}",
+                    server,
+                    resp.status(),
+                    stationuuid
+                );
+            }
+            Err(e) => {
+                tracing::warn!(
+                    "Radio API: failed to record click on {} for {}: {:?}",
+                    server,
+                    stationuuid,
+                    e
+                );
+            }
+        }
+    }
 }
 
 pub fn radio_api_worker(
     rx_radio: crossbeam_channel::Receiver<RadioMessage>,
     proxy: EventLoopProxy<ProxyMessage>,
 ) {
-    let api = create_api();
-    let mut radio_stations = RadioStations {
-        rx_radio,
-        proxy,
-        stations: vec![],
-        api,
-    };
-
     let runtime = Builder::new_multi_thread()
         .worker_threads(2)
         .thread_name("radio_api_worker")
         .enable_all()
         .build()
         .unwrap();
+
+    let (api, servers) = runtime.block_on(init_api_and_servers());
+    let http_client = reqwest::Client::builder()
+        .user_agent(APP_USER_AGENT)
+        .connect_timeout(std::time::Duration::from_secs(5))
+        .timeout(std::time::Duration::from_secs(10))
+        .build()
+        .unwrap_or_default();
+
+    let mut radio_stations = RadioStations {
+        rx_radio,
+        proxy,
+        stations: vec![],
+        api,
+        http_client,
+        servers: Arc::from(servers),
+    };
+
     runtime.block_on(radio_stations.run());
 }
 
@@ -101,6 +179,13 @@ impl RadioStations {
                     self.get_tags(true).await;
                 }
                 RadioMessage::GetTags => self.get_tags(false).await,
+                RadioMessage::RecordStationClick(uuid) => {
+                    let client = self.http_client.clone();
+                    let servers = self.servers.clone();
+                    tokio::spawn(async move {
+                        record_station_click(&client, servers, uuid).await;
+                    });
+                }
             }
         }
     }
@@ -212,6 +297,15 @@ impl RadioStations {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_app_user_agent_format() {
+        assert!(APP_USER_AGENT.starts_with("ratlas/"));
+        assert_eq!(
+            APP_USER_AGENT,
+            concat!("ratlas/", env!("CARGO_PKG_VERSION"))
+        );
+    }
 
     #[test]
     fn test_filter_supported_stations() {
