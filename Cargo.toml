@@ -13,13 +13,13 @@ winit = { version = "0.30", features = ["rwh_06"] }
 bytemuck = { version = "1.25.2", features = ["derive"] }
 tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
-clap = { version = "4.6.7", features = ["derive"] }
+# clap = { version = "4.6.7", features = ["derive"] }
 anyhow = "1.0.104"
 crossbeam-channel = "0.5.17"
-itertools = "0.15.0"
+# itertools = "0.15.0"
 pollster = "1.0.1"
-dyn-clone = "1.0.20"
-enum-iterator = "2.3.0"
+# dyn-clone = "1.0.20"
+# enum-iterator = "2.3.0"
 serde = { version = "1.0.229", features = ["derive"] }
 toml = { version = "1.1.8", features = ["preserve_order"] }
 directories = "6.0.0"
