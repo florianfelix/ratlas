@@ -1,6 +1,7 @@
 /target
 *.log
-*.obj
+# *.obj
 *.mtl
-*.jpg
-/assets
+# *.jpg
+/assets_dev
+/skills

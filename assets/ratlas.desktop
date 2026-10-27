@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Ratlas
+Comment=3D Radio Atlas & Streaming Player
+Exec=ratlas
+Icon=ratlas
+Categories=AudioVideo;Audio;Player;
+Terminal=false
+StartupWMClass=ratlas
