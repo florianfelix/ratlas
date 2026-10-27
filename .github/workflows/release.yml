@@ -1,0 +1,170 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-windows:
+    name: Build Windows (x86_64)
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Cargo dependencies
+        uses: Swatinem/rust-cache@v2
+
+      - name: Build Windows release binary
+        run: cargo build --release
+
+      - name: Package Windows distribution
+        shell: pwsh
+        run: |
+          $distDir = "target/windows-package/ratlas"
+          $distAssets = "$distDir/assets"
+          $outputZip = "target/Ratlas-Windows-x86_64.zip"
+
+          New-Item -ItemType Directory -Force -Path $distAssets | Out-Null
+          Copy-Item "target/release/ratlas.exe" "$distDir/ratlas.exe"
+          
+          if (Test-Path "README.md") { Copy-Item "README.md" "$distDir/" }
+          Get-ChildItem -Path . -Filter "LICENSE*" | ForEach-Object { Copy-Item $_.FullName "$distDir/" }
+
+          # Copy runtime assets, excluding preview image and linux desktop entry
+          Get-ChildItem -Path "assets" -File | Where-Object { 
+            $_.Name -notin @("ratlas.desktop", "preview.png") 
+          } | ForEach-Object {
+            Copy-Item $_.FullName "$distAssets/"
+          }
+
+          Compress-Archive -Path $distDir -DestinationPath $outputZip -Force
+          Write-Host "Created $outputZip"
+
+      - name: Upload Windows zip artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Ratlas-Windows-x86_64.zip
+          path: target/Ratlas-Windows-x86_64.zip
+          if-no-files-found: error
+
+  build-linux-appimage:
+    name: Build Linux AppImage (x86_64)
+    runs-on: ubuntu-22.04
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libasound2-dev \
+            libssl-dev \
+            pkg-config \
+            libx11-dev \
+            libxi-dev \
+            libxcursor-dev \
+            libxrandr-dev \
+            libxkbcommon-dev \
+            libwayland-dev
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Cargo dependencies
+        uses: Swatinem/rust-cache@v2
+
+      - name: Build Linux release binary
+        run: cargo build --release
+
+      - name: Package AppImage
+        run: |
+          APP_DIR="target/appimage/AppDir"
+          OUTPUT_APPIMAGE="target/Ratlas-x86_64.AppImage"
+
+          mkdir -p "${APP_DIR}/usr/bin"
+          mkdir -p "${APP_DIR}/usr/share/applications"
+          mkdir -p "${APP_DIR}/usr/share/icons/hicolor/256x256/apps"
+          mkdir -p "${APP_DIR}/usr/share/ratlas"
+
+          cp "target/release/ratlas" "${APP_DIR}/usr/bin/ratlas"
+
+          if [ -d "assets" ]; then
+              cp -r "assets" "${APP_DIR}/"
+              cp -r "assets" "${APP_DIR}/usr/share/ratlas/"
+              rm -f "${APP_DIR}/assets/preview.png" "${APP_DIR}/usr/share/ratlas/assets/preview.png"
+          fi
+
+          if [ -f "assets/ratlas.desktop" ]; then
+              cp "assets/ratlas.desktop" "${APP_DIR}/ratlas.desktop"
+          fi
+          cp "${APP_DIR}/ratlas.desktop" "${APP_DIR}/usr/share/applications/ratlas.desktop"
+
+          if [ -f "assets/ratlas.png" ]; then
+              cp "assets/ratlas.png" "${APP_DIR}/ratlas.png"
+              cp "assets/ratlas.png" "${APP_DIR}/.DirIcon"
+              cp "assets/ratlas.png" "${APP_DIR}/usr/share/icons/hicolor/256x256/apps/ratlas.png"
+          fi
+
+          cat << 'EOF' > "${APP_DIR}/AppRun"
+          #!/bin/sh
+          set -e
+          HERE="$(dirname "$(readlink -f "$0")")"
+          export PATH="${HERE}/usr/bin:${PATH}"
+          export LD_LIBRARY_PATH="${HERE}/usr/lib:${LD_LIBRARY_PATH}"
+          export XDG_DATA_DIRS="${HERE}/usr/share:${XDG_DATA_DIRS:-/usr/local/share:/usr/share}"
+          cd "${HERE}"
+          exec "${HERE}/usr/bin/ratlas" "$@"
+          EOF
+          chmod +x "${APP_DIR}/AppRun"
+
+          # Download and run appimagetool without requiring FUSE
+          TOOL="target/appimage/appimagetool"
+          mkdir -p "target/appimage"
+          curl -fsSL -o "${TOOL}" "https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage"
+          chmod +x "${TOOL}"
+
+          ARCH=x86_64 "${TOOL}" --appimage-extract-and-run "${APP_DIR}" "${OUTPUT_APPIMAGE}"
+
+      - name: Upload Linux AppImage artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Ratlas-x86_64.AppImage
+          path: target/Ratlas-x86_64.AppImage
+          if-no-files-found: error
+
+  publish-release:
+    name: Publish GitHub Release
+    needs: [build-windows, build-linux-appimage]
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Download all build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: release-artifacts
+          merge-multiple: true
+
+      - name: Generate SHA256 checksums
+        working-directory: release-artifacts
+        run: |
+          sha256sum * > SHA256SUMS.txt
+          cat SHA256SUMS.txt
+
+      - name: Publish Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: release-artifacts/*
+          generate_release_notes: true
