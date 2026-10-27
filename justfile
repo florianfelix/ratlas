@@ -26,6 +26,7 @@ appimage:
     if [ -d "assets" ]; then
         cp -r "assets" "${APP_DIR}/"
         cp -r "assets" "${APP_DIR}/usr/share/ratlas/"
+        rm -f "${APP_DIR}/assets/preview.png" "${APP_DIR}/usr/share/ratlas/assets/preview.png"
     fi
 
     if [ -f "assets/ratlas.desktop" ]; then
@@ -95,12 +96,19 @@ windows-zip:
 
     echo "==> Preparing Windows distribution folder at ${DIST_DIR}..."
     rm -rf "${DIST_DIR}"
-    mkdir -p "${DIST_DIR}"
+    mkdir -p "${DIST_DIR}/assets"
 
     cp "target/x86_64-pc-windows-gnu/release/ratlas.exe" "${DIST_DIR}/ratlas.exe"
+    [ -f "README.md" ] && cp "README.md" "${DIST_DIR}/" || true
+    cp LICENSE* "${DIST_DIR}/" 2>/dev/null || true
 
     if [ -d "assets" ]; then
-        cp -r "assets" "${DIST_DIR}/"
+        for f in assets/*; do
+            bn="$(basename "$f")"
+            if [ "$bn" != "ratlas.desktop" ] && [ "$bn" != "preview.png" ]; then
+                cp "$f" "${DIST_DIR}/assets/"
+            fi
+        done
     fi
 
     echo "==> Creating ${OUTPUT_ZIP}..."
