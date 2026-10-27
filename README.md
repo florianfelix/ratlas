@@ -22,7 +22,7 @@ Explore and tune in to thousands of live radio stations worldwide directly on an
 
 ## Installation and Download
 
-Pre-built binaries are available on the [Releases](https://github.com/florianfelixmeyer/ratlas/releases) page.
+Pre-built binaries are available on the [Releases](https://github.com/florianfelix/ratlas/releases) page.
 
 ### Linux (AppImage)
 
@@ -70,7 +70,7 @@ sudo pacman -S alsa-lib openssl libx11
 
 ```bash
 # Clone the repository
-git clone https://github.com/florianfelixmeyer/ratlas.git
+git clone https://github.com/florianfelix/ratlas.git
 cd ratlas
 
 # Run in release mode
