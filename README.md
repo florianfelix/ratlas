@@ -1,26 +1,28 @@
-# Ratlas 🌍📻
+# Ratlas
 
-**Interactive 3D Radio Atlas & Streaming Player built with Rust, Iced, and WGPU.**
+Interactive 3D Radio Atlas and Streaming Player built with Rust, Iced, and WGPU.
 
 Explore and tune in to thousands of live radio stations worldwide directly on an interactive 3D globe.
 
----
-
-## ✨ Features
-
-- **🌍 Real-time 3D Earth Globe**: Rendered via WGPU hardware acceleration with custom shaders, day & night textures, specular ocean maps, country outlines, and smooth orbital camera controls.
-- **📻 Radio Browser Integration**: Backed by the community-driven [Radio Browser](https://www.radio-browser.info/) API with thousands of geographically mapped stations.
-- **🎵 Multi-format Stream Playback**: Native audio playback supporting MP3, AAC/ADTS, and Ogg/Opus streams powered by `rodio`.
-- **🔍 Filter & Search**: Search and filter by tags/genres, country, and popularity to find exactly what you want to listen to.
-- **📌 Spatial Proximity Selection**: Hover over and click 3D pins on the globe to view station information and tune in immediately.
-- **🗔 System Tray Support**: Minimize to the system tray while keeping audio playback running smoothly in the background.
-- **🎨 Custom Themes**: Built with modern [Iced](https://iced.rs/) UI and configurable themes.
+![Ratlas Preview](assets/preview.png)
 
 ---
 
-## 🚀 Installation & Download
+## Features
 
-Pre-built binaries are available under [Releases](https://github.com/florianfelixmeyer/ratlas/releases).
+- **Real-time 3D Earth Globe**: Rendered via WGPU hardware acceleration with custom shaders, day and night textures, specular ocean maps, country outlines, and smooth orbital camera controls.
+- **Radio Browser Integration**: Backed by the community-driven [Radio Browser](https://www.radio-browser.info/) API with thousands of geographically mapped stations.
+- **Multi-format Stream Playback**: Native audio playback supporting MP3, AAC/ADTS, and Ogg/Opus streams powered by `rodio`.
+- **Filter and Search**: Search and filter by tags, genres, country, and popularity to find stations easily.
+- **Spatial Proximity Selection**: Hover over and click 3D pins on the globe to view station information and tune in immediately.
+- **System Tray Support**: Minimize to the system tray while keeping audio playback running smoothly in the background.
+- **Custom Themes**: Built with modern [Iced](https://iced.rs/) UI and configurable themes.
+
+---
+
+## Installation and Download
+
+Pre-built binaries are available on the [Releases](https://github.com/florianfelixmeyer/ratlas/releases) page.
 
 ### Linux (AppImage)
 
@@ -39,7 +41,7 @@ Pre-built binaries are available under [Releases](https://github.com/florianfeli
 
 ---
 
-## 🛠️ Building from Source
+## Building from Source
 
 ### Prerequisites
 
@@ -90,7 +92,7 @@ just dev
 
 ---
 
-## 🎮 Controls
+## Controls
 
 | Action | Control |
 | :--- | :--- |
@@ -101,7 +103,7 @@ just dev
 
 ---
 
-## 📜 License
+## License
 
 Licensed under either of:
 
