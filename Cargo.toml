@@ -2,11 +2,11 @@
 name = "ratlas"
 version = "0.1.0"
 edition = "2024"
-authors = ["Felix <florianfelixmeyer@gmail.com>"]
+authors = ["Felix"]
 description = "Interactive 3D Radio Atlas & Streaming Player"
 readme = "README.md"
 license = "MIT OR Apache-2.0"
-repository = "https://github.com/florianfelixmeyer/ratlas"
+repository = "https://github.com/florianfelix/ratlas"
 keywords = ["radio", "3d", "globe", "audio-player", "iced"]
 categories = ["multimedia::audio", "gui"]
 
